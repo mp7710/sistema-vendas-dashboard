@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 # ==============================================================================
 st.set_page_config(page_title="Analytics Pro MP", layout="wide", page_icon="📈")
 
-# CSS Customizado para remover bordas padrão e deixar mais limpo
+# CSS Customizado
 st.markdown("""
 <style>
     .block-container {padding-top: 1.5rem; padding-bottom: 2rem;}
@@ -20,7 +20,7 @@ st.markdown("""
 # 2. BARRA LATERAL (FILTROS E UPLOAD)
 # ==============================================================================
 with st.sidebar:
-    # --- LOGO CSS (Sua Marca) ---
+    # --- LOGO CSS ---
     st.markdown("""
         <style>
         .logo-box {
@@ -50,8 +50,9 @@ st.markdown("Visão estratégica e simulação de cenários financeiros.")
 
 aba1, aba2 = st.tabs(["📊 Visão Geral (BI)", "🧠 Simulador de Precificação"])
 
-# VARIÁVEL GLOBAL PARA DADOS
+# VARIÁVEIS GLOBAIS
 tabela_filtrada = None
+nome_coluna_data = None # Para guardar o nome exato da coluna de data
 
 if arquivo_upload is not None:
     # --- LEITURA E TRATAMENTO DOS DADOS ---
@@ -65,7 +66,7 @@ if arquivo_upload is not None:
         else:
             tabela = pd.read_excel(arquivo_upload)
             
-        # PADRONIZAÇÃO DE COLUNAS (O "Tradutor")
+        # PADRONIZAÇÃO DE COLUNAS
         tabela.columns = tabela.columns.str.strip()
         mapa = {"Quantidade": "Vendas", "Preco_Unitario": "Preço", "Custo_Unitario": "Custo", "Preco": "Preço"}
         tabela = tabela.rename(columns=mapa)
@@ -79,13 +80,19 @@ if arquivo_upload is not None:
         tabela["Lucro"] = tabela["Faturamento"] - (tabela["Custo"] * tabela["Vendas"])
         tabela["Margem_Perc"] = (tabela["Lucro"] / tabela["Faturamento"]) * 100
         
-        # --- FILTRO DE DATA (NOVIDADE PROFISSIONAL) ---
-        # Se existir coluna de Data, cria o filtro
-        col_data = [col for col in tabela.columns if 'Data' in col or 'date' in col.lower()]
-        if col_data:
-            tabela[col_data[0]] = pd.to_datetime(tabela[col_data[0]])
-            data_min = tabela[col_data[0]].min()
-            data_max = tabela[col_data[0]].max()
+        # --- FILTRO DE DATA AUTOMÁTICO ---
+        # Procura colunas que tenham "Data" ou "date" no nome
+        col_data_encontrada = [col for col in tabela.columns if 'Data' in col or 'date' in col.lower()]
+        
+        if col_data_encontrada:
+            nome_coluna_data = col_data_encontrada[0] # Pega o nome real (ex: "Data", "Data Venda")
+            
+            # Converte para data
+            tabela[nome_coluna_data] = pd.to_datetime(tabela[nome_coluna_data])
+            
+            # Pega data min e max para o filtro
+            data_min = tabela[nome_coluna_data].min()
+            data_max = tabela[nome_coluna_data].max()
             
             with st.sidebar:
                 st.markdown("---")
@@ -99,9 +106,13 @@ if arquivo_upload is not None:
             
             # Aplica o filtro
             tabela_filtrada = tabela[
-                (tabela[col_data[0]].dt.date >= data_inicio) & 
-                (tabela[col_data[0]].dt.date <= data_fim)
+                (tabela[nome_coluna_data].dt.date >= data_inicio) & 
+                (tabela[nome_coluna_data].dt.date <= data_fim)
             ]
+            
+            # Ordena por data (mais recente primeiro) para ficar bonito na tabela
+            tabela_filtrada = tabela_filtrada.sort_values(by=nome_coluna_data, ascending=False)
+            
         else:
             tabela_filtrada = tabela
 
@@ -135,9 +146,12 @@ with aba1:
         
         with g_col1:
             st.subheader("Performance por Produto")
-            # Gráfico de Barras com cor condicional (Plotly)
+            
+            # Agrupa dados para o gráfico (numeric_only=True para ignorar datas)
+            dados_grafico = tabela_filtrada.groupby("Produto").sum(numeric_only=True).reset_index()
+            
             fig_bar = px.bar(
-                tabela_filtrada.groupby("Produto").sum().reset_index(),
+                dados_grafico,
                 x="Produto", y="Lucro", color="Lucro",
                 color_continuous_scale=["#ef4444", "#fbbf24", "#22c55e"],
                 title="Ranking de Lucratividade",
@@ -148,7 +162,6 @@ with aba1:
             
         with g_col2:
             st.subheader("Share por Categoria")
-            # Gráfico de Rosca (Donut)
             fig_pie = px.pie(
                 tabela_filtrada, values="Faturamento", names="Categoria", 
                 hole=0.5, color_discrete_sequence=px.colors.qualitative.Pastel
@@ -156,16 +169,25 @@ with aba1:
             fig_pie.update_traces(textposition='inside', textinfo='percent+label')
             st.plotly_chart(fig_pie, use_container_width=True)
             
-        # --- LINHA 3: TABELA DETALHADA ---
-        st.subheader("📋 Detalhamento das Transações")
+        # --- LINHA 3: TABELA COMPLETA (TODOS OS DADOS) ---
+        st.subheader("📋 Detalhamento de Transações")
+        
+        # Prepara a configuração das colunas
+        config_colunas = {
+            "Preço": st.column_config.NumberColumn(format="R$ %.2f"),
+            "Custo": st.column_config.NumberColumn(format="R$ %.2f"),
+            "Faturamento": st.column_config.NumberColumn(format="R$ %.2f"),
+            "Lucro": st.column_config.NumberColumn(format="R$ %.2f"),
+            "Margem_Perc": st.column_config.ProgressColumn("Margem (%)", format="%.1f%%", min_value=-10, max_value=100)
+        }
+        
+        # Se achou uma coluna de data, formata ela também
+        if nome_coluna_data:
+            config_colunas[nome_coluna_data] = st.column_config.DateColumn("Data da Venda", format="DD/MM/YYYY")
+
         st.dataframe(
-            tabela_filtrada[["Produto", "Categoria", "Preço", "Vendas", "Faturamento", "Lucro", "Margem_Perc"]],
-            column_config={
-                "Preço": st.column_config.NumberColumn(format="R$ %.2f"),
-                "Faturamento": st.column_config.NumberColumn(format="R$ %.2f"),
-                "Lucro": st.column_config.NumberColumn(format="R$ %.2f"),
-                "Margem_Perc": st.column_config.ProgressColumn("Margem (%)", format="%.1f%%", min_value=-10, max_value=100)
-            },
+            tabela_filtrada, # Passa a tabela inteira, sem cortar nada
+            column_config=config_colunas,
             use_container_width=True,
             hide_index=True
         )
@@ -173,7 +195,7 @@ with aba1:
         st.info("👋 Olá! Carregue sua planilha (Excel ou CSV) na barra lateral para ativar o Dashboard.")
 
 # ==============================================================================
-# ABA 2: SIMULADOR (ESTILO FERRAMENTA FINANCEIRA)
+# ABA 2: SIMULADOR
 # ==============================================================================
 with aba2:
     st.write("### 🛠️ Calculadora de Viabilidade")
@@ -188,14 +210,12 @@ with aba2:
             markup = st.number_input("Markup (%)", 0.0, 500.0, 30.0)
             imposto = st.number_input("Impostos (%)", 0.0, 100.0, 5.0)
             
-            # Cálculos
             preco_venda = custo * (1 + markup/100)
             val_imposto = preco_venda * (imposto/100)
             lucro_liq = preco_venda - val_imposto - custo
             margem_real = (lucro_liq / preco_venda) * 100 if preco_venda > 0 else 0
             
             st.markdown("---")
-            # Gráfico Velocímetro
             fig_gauge = go.Figure(go.Indicator(
                 mode = "gauge+number",
                 value = margem_real,
@@ -220,13 +240,11 @@ with aba2:
             st.subheader("2. Ponto de Equilíbrio (Break-even)")
             custo_fixo = st.number_input("Custo Fixo Mensal (R$)", 0.0, 100000.0, 5000.0)
             
-            mc = preco_venda - (custo + val_imposto) # Margem de contribuição
+            mc = preco_venda - (custo + val_imposto)
             
             if mc > 0:
                 qtd_eq = custo_fixo / mc
-                receita_eq = qtd_eq * preco_venda
                 
-                # Gráfico de Linhas Cruzadas
                 x = list(range(0, int(qtd_eq * 1.8), 5))
                 y_rec = [xi * preco_venda for xi in x]
                 y_cus = [custo_fixo + (custo + val_imposto) * xi for xi in x]
