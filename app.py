@@ -1,227 +1,253 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-# Configuração da página
-st.set_page_config(page_title="Consultor Inteligente de Vendas", layout="wide", page_icon="💼")
-sns.set_style("whitegrid")
-
-# Título Principal
-st.title("💼 Consultor Inteligente de Negócios")
-st.write("Analise seus dados passados e simule o futuro do seu negócio.")
-
-# Criação de Abas
-aba1, aba2 = st.tabs(["📊 Dashboard de Vendas (Arquivo)", "🧠 Simulador Estratégico (Calculadora)"])
+import plotly.express as px
+import plotly.graph_objects as go
 
 # ==============================================================================
-# ABA 1: O DASHBOARD DE VENDAS
+# 1. CONFIGURAÇÃO VISUAL DA PÁGINA
 # ==============================================================================
-with aba1:
-    st.header("Análise de Dados Históricos")
-    
-    # Barra lateral
-    with st.sidebar:
-        st.header("🎛️ Painel de Controle")
-        # ACEITA CSV E EXCEL
-        arquivo_upload = st.file_uploader("📂 Carregar Planilha", type=["xlsx", "csv"])
-        
-        with st.expander("⚙️ Configurar Metas"):
-            meta_eletronicos = st.slider("Meta Eletrônicos (%)", 10, 50, 10) / 100
-            meta_moda = st.slider("Meta Moda (%)", 20, 80, 50) / 100
-            meta_servicos = st.slider("Meta Serviços (%)", 50, 100, 80) / 100
-            meta_geral = st.slider("Meta Geral (%)", 10, 50, 20) / 100
+st.set_page_config(page_title="Analytics Pro MP", layout="wide", page_icon="📈")
 
-    metas_por_categoria = {
-        "Eletronicos": meta_eletronicos,
-        "Moda": meta_moda,
-        "Servicos": meta_servicos,
-        "Geral": meta_geral
-    }
+# CSS Customizado para remover bordas padrão e deixar mais limpo
+st.markdown("""
+<style>
+    .block-container {padding-top: 1.5rem; padding-bottom: 2rem;}
+    [data-testid="stMetricValue"] {font-size: 24px;}
+</style>
+""", unsafe_allow_html=True)
 
-    if arquivo_upload is not None:
-        # ---------------------------------------------------------
-        # LEITURA INTELIGENTE (CSV OU EXCEL)
-        # ---------------------------------------------------------
-        try:
-            if arquivo_upload.name.endswith('.csv'):
-                try:
-                    tabela = pd.read_csv(arquivo_upload)
-                except:
-                    arquivo_upload.seek(0)
-                    tabela = pd.read_csv(arquivo_upload, sep=';')
-            else:
-                tabela = pd.read_excel(arquivo_upload)
-        except Exception as e:
-            st.error(f"Erro ao ler o arquivo: {e}")
-            st.stop()
-
-        # ---------------------------------------------------------
-        # TRADUTOR DE COLUNAS (O SEGREDO PARA A PLANILHA NOVA)
-        # ---------------------------------------------------------
-        # Remove espaços extras nos nomes das colunas
-        tabela.columns = tabela.columns.str.strip()
-        
-        # Dicionário de tradução: "Nome Novo" -> "Nome Padrão"
-        mapa_colunas = {
-            "Quantidade": "Vendas",
-            "Preco_Unitario": "Preço",
-            "Custo_Unitario": "Custo",
-            "Preco": "Preço" 
+# ==============================================================================
+# 2. BARRA LATERAL (FILTROS E UPLOAD)
+# ==============================================================================
+with st.sidebar:
+    # --- LOGO CSS (Sua Marca) ---
+    st.markdown("""
+        <style>
+        .logo-box {
+            display: flex; justify-content: center; align-items: center;
+            background: linear-gradient(135deg, #1e293b, #0f172a);
+            border-radius: 12px; width: 100%; height: 80px;
+            margin-bottom: 20px; border: 1px solid #334155;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
-        
-        # Renomeia as colunas automaticamente se encontrar os nomes novos
-        tabela = tabela.rename(columns=mapa_colunas)
-        
-        # ---------------------------------------------------------
-        # VALIDAÇÃO
-        # ---------------------------------------------------------
-        colunas_necessarias = ["Vendas", "Preço", "Custo", "Produto"]
-        faltantes = [col for col in colunas_necessarias if col not in tabela.columns]
-        
-        if faltantes:
-            st.error(f"❌ O arquivo não tem as colunas padrão nem as novas compatíveis.")
-            st.warning(f"Colunas que faltam (ou estão com nome diferente): {', '.join(faltantes)}")
-            st.stop()
+        .logo-text { color: white; font-weight: 800; font-size: 32px; margin: 0; font-family: 'Arial'; letter-spacing: 2px;}
+        </style>
+        <div class="logo-box"><p class="logo-text">MP</p></div>
+    """, unsafe_allow_html=True)
+    
+    st.header("🎛️ Painel de Controle")
+    arquivo_upload = st.file_uploader("Importar Dados (Excel/CSV)", type=["xlsx", "csv"])
+    
+    st.markdown("---")
+    st.write("🎯 **Metas de Margem**")
+    meta_geral = st.slider("Meta Global (%)", 0, 100, 20) / 100
 
-        # Tratamento de categoria (Se não tiver, cria Geral)
+# ==============================================================================
+# 3. CORPO PRINCIPAL
+# ==============================================================================
+st.title("📈 Dashboard Executivo de Vendas")
+st.markdown("Visão estratégica e simulação de cenários financeiros.")
+
+aba1, aba2 = st.tabs(["📊 Visão Geral (BI)", "🧠 Simulador de Precificação"])
+
+# VARIÁVEL GLOBAL PARA DADOS
+tabela_filtrada = None
+
+if arquivo_upload is not None:
+    # --- LEITURA E TRATAMENTO DOS DADOS ---
+    try:
+        if arquivo_upload.name.endswith('.csv'):
+            try:
+                tabela = pd.read_csv(arquivo_upload)
+            except:
+                arquivo_upload.seek(0)
+                tabela = pd.read_csv(arquivo_upload, sep=';')
+        else:
+            tabela = pd.read_excel(arquivo_upload)
+            
+        # PADRONIZAÇÃO DE COLUNAS (O "Tradutor")
+        tabela.columns = tabela.columns.str.strip()
+        mapa = {"Quantidade": "Vendas", "Preco_Unitario": "Preço", "Custo_Unitario": "Custo", "Preco": "Preço"}
+        tabela = tabela.rename(columns=mapa)
+        
+        # CATEGORIA DEFAULT
         if "Categoria" not in tabela.columns:
             tabela["Categoria"] = "Geral"
-            st.warning("⚠️ Classificando tudo como 'Geral' (coluna Categoria não encontrada).")
-        
-        # Limpeza de dados na coluna Categoria
-        if tabela["Categoria"].dtype == 'object':
-            tabela["Categoria"] = tabela["Categoria"].str.strip()
-
-        # Cálculos
+            
+        # CÁLCULOS FINANCEIROS
         tabela["Faturamento"] = tabela["Vendas"] * tabela["Preço"]
         tabela["Lucro"] = tabela["Faturamento"] - (tabela["Custo"] * tabela["Vendas"])
+        tabela["Margem_Perc"] = (tabela["Lucro"] / tabela["Faturamento"]) * 100
         
-        # Métricas
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Faturamento Total", f"R$ {tabela['Faturamento'].sum():,.2f}")
-        col2.metric("Lucro Total", f"R$ {tabela['Lucro'].sum():,.2f}")
-        col3.metric("Total Vendido (Qtd)", int(tabela['Vendas'].sum()))
+        # --- FILTRO DE DATA (NOVIDADE PROFISSIONAL) ---
+        # Se existir coluna de Data, cria o filtro
+        col_data = [col for col in tabela.columns if 'Data' in col or 'date' in col.lower()]
+        if col_data:
+            tabela[col_data[0]] = pd.to_datetime(tabela[col_data[0]])
+            data_min = tabela[col_data[0]].min()
+            data_max = tabela[col_data[0]].max()
+            
+            with st.sidebar:
+                st.markdown("---")
+                st.header("📅 Filtro de Período")
+                data_inicio, data_fim = st.date_input(
+                    "Selecione o intervalo",
+                    [data_min, data_max],
+                    min_value=data_min,
+                    max_value=data_max
+                )
+            
+            # Aplica o filtro
+            tabela_filtrada = tabela[
+                (tabela[col_data[0]].dt.date >= data_inicio) & 
+                (tabela[col_data[0]].dt.date <= data_fim)
+            ]
+        else:
+            tabela_filtrada = tabela
+
+    except Exception as e:
+        st.error(f"Erro ao processar arquivo: {e}")
+        st.stop()
+
+# ==============================================================================
+# ABA 1: DASHBOARD COM PLOTLY
+# ==============================================================================
+with aba1:
+    if tabela_filtrada is not None:
+        # --- LINHA 1: BIG NUMBERS (KPIs) ---
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        
+        fat_total = tabela_filtrada["Faturamento"].sum()
+        lucro_total = tabela_filtrada["Lucro"].sum()
+        vendas_total = tabela_filtrada["Vendas"].sum()
+        margem_media = tabela_filtrada["Margem_Perc"].mean()
+        
+        kpi1.metric("💰 Faturamento", f"R$ {fat_total:,.2f}")
+        kpi2.metric("💸 Lucro Líquido", f"R$ {lucro_total:,.2f}", delta_color="normal")
+        kpi3.metric("📦 Vendas (Qtd)", f"{int(vendas_total)}")
+        kpi4.metric("📈 Margem Média", f"{margem_media:.1f}%", 
+                   delta=f"{margem_media - (meta_geral*100):.1f}% vs Meta")
         
         st.divider()
         
-        # Assistente Virtual Inteligente (Agrupado por produto)
-        st.subheader("🤖 Diagnóstico Automático")
+        # --- LINHA 2: GRÁFICOS AVANÇADOS ---
+        g_col1, g_col2 = st.columns([2, 1])
         
-        # Agrupa por produto para somar vendas repetidas
-        analise_produto = tabela.groupby(["Produto", "Categoria"]).agg({
-            "Faturamento": "sum",
-            "Lucro": "sum"
-        }).reset_index()
-
-        for index, linha in analise_produto.iterrows():
-            produto = linha["Produto"]
-            categoria = linha["Categoria"]
-            lucro = linha["Lucro"]
-            faturamento = linha["Faturamento"]
-            meta = metas_por_categoria.get(categoria, meta_geral)
+        with g_col1:
+            st.subheader("Performance por Produto")
+            # Gráfico de Barras com cor condicional (Plotly)
+            fig_bar = px.bar(
+                tabela_filtrada.groupby("Produto").sum().reset_index(),
+                x="Produto", y="Lucro", color="Lucro",
+                color_continuous_scale=["#ef4444", "#fbbf24", "#22c55e"],
+                title="Ranking de Lucratividade",
+                text_auto='.2s'
+            )
+            fig_bar.update_layout(xaxis_title=None, yaxis_title=None)
+            st.plotly_chart(fig_bar, use_container_width=True)
             
-            if faturamento > 0:
-                margem_real = lucro / faturamento
-                if lucro < 0:
-                    st.error(f"🔴 **{produto}**: Prejuízo acumulado de R$ {lucro:.2f}!")
-                elif margem_real < meta:
-                    st.warning(f"⚠️ **{produto}**: Margem de {margem_real:.1%} (Meta: {meta:.0%})")
-                else:
-                    st.success(f"✅ **{produto}**: Margem Saudável de {margem_real:.1%}")
-
-        # Visualização Gráfica
-        st.subheader("Performance Visual")
-        fig, ax = plt.subplots(figsize=(10, 4))
-        
-        # Agrupa dados para o gráfico ficar limpo (soma vendas do mesmo produto)
-        grafico_dados = tabela.groupby("Produto")[["Lucro"]].sum().reset_index()
-        
-        cores = ['red' if l < 0 else 'green' for l in grafico_dados['Lucro']]
-        sns.barplot(data=grafico_dados, x="Produto", y="Lucro", palette=cores, ax=ax)
-        plt.xticks(rotation=45)
-        st.pyplot(fig)
+        with g_col2:
+            st.subheader("Share por Categoria")
+            # Gráfico de Rosca (Donut)
+            fig_pie = px.pie(
+                tabela_filtrada, values="Faturamento", names="Categoria", 
+                hole=0.5, color_discrete_sequence=px.colors.qualitative.Pastel
+            )
+            fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+            st.plotly_chart(fig_pie, use_container_width=True)
+            
+        # --- LINHA 3: TABELA DETALHADA ---
+        st.subheader("📋 Detalhamento das Transações")
+        st.dataframe(
+            tabela_filtrada[["Produto", "Categoria", "Preço", "Vendas", "Faturamento", "Lucro", "Margem_Perc"]],
+            column_config={
+                "Preço": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Faturamento": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Lucro": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Margem_Perc": st.column_config.ProgressColumn("Margem (%)", format="%.1f%%", min_value=-10, max_value=100)
+            },
+            use_container_width=True,
+            hide_index=True
+        )
     else:
-        st.info("Aguardando upload do arquivo (Excel ou CSV)...")
+        st.info("👋 Olá! Carregue sua planilha (Excel ou CSV) na barra lateral para ativar o Dashboard.")
 
 # ==============================================================================
-# ABA 2: SIMULADOR ESTRATÉGICO
+# ABA 2: SIMULADOR (ESTILO FERRAMENTA FINANCEIRA)
 # ==============================================================================
 with aba2:
-    st.header("Ferramentas de Decisão Financeira")
-    col_esq, col_dir = st.columns(2)
-
-    # --- MARKUP vs MARGEM ---
-    with col_esq:
-        st.subheader("🔍 Markup vs Margem Real")
-        custo_produto = st.number_input("Custo de Compra (R$)", value=50.0)
-        markup_aplicado = st.number_input("Quanto você adiciona em cima? (%)", value=30.0)
-        imposto = st.number_input("Impostos sobre venda (%)", value=5.0)
-        
-        preco_venda = custo_produto * (1 + markup_aplicado/100)
-        valor_imposto = preco_venda * (imposto/100)
-        lucro_liquido = preco_venda - valor_imposto - custo_produto
-        margem_real = (lucro_liquido / preco_venda) * 100
-        
-        st.divider()
-        st.write(f"🏷️ Preço Final: **R$ {preco_venda:.2f}**")
-        
-        col_a, col_b = st.columns(2)
-        col_a.metric("Você ACHOU que ganharia", f"{markup_aplicado}%")
-        col_b.metric("Margem REAL (No bolso)", f"{margem_real:.1f}%", delta=f"{margem_real - markup_aplicado:.1f}%")
-        
-        if margem_real < 10:
-            st.error("🚨 Margem perigosamente baixa!")
-        else:
-            st.info(f"Sobra R$ {lucro_liquido:.2f} limpos por venda.")
-
-    # --- PONTO DE EQUILÍBRIO ---
-    with col_dir:
-        st.subheader("⚖️ Ponto de Equilíbrio")
-        custo_fixo = st.number_input("Custo Fixo Mensal (Aluguel, Luz...)", value=5000.0)
-        
-        preco_unitario = st.number_input("Preço Médio (R$)", value=preco_venda, disabled=True)
-        custo_variavel = st.number_input("Custo Variável (Prod + Imposto)", value=custo_produto + valor_imposto, disabled=True)
-        
-        margem_contribuicao = preco_unitario - custo_variavel
-        
-        if margem_contribuicao <= 0:
-            st.error("Preço insuficiente para pagar custos variáveis!")
-        else:
-            qtd_equilibrio = custo_fixo / margem_contribuicao
-            fat_equilibrio = qtd_equilibrio * preco_unitario
+    st.write("### 🛠️ Calculadora de Viabilidade")
+    st.caption("Ajuste os parâmetros abaixo para simular a saúde financeira de um novo produto.")
+    
+    sim_col1, sim_col2 = st.columns(2)
+    
+    with sim_col1:
+        with st.container(border=True):
+            st.subheader("1. Precificação & Margem")
+            custo = st.number_input("Custo Unitário (R$)", 0.0, 10000.0, 50.0)
+            markup = st.number_input("Markup (%)", 0.0, 500.0, 30.0)
+            imposto = st.number_input("Impostos (%)", 0.0, 100.0, 5.0)
             
-            st.divider()
-            st.metric("Vendas Necessárias (Qtd)", f"{int(qtd_equilibrio)} un")
-            st.caption(f"Faturamento necessário: R$ {fat_equilibrio:,.2f}")
+            # Cálculos
+            preco_venda = custo * (1 + markup/100)
+            val_imposto = preco_venda * (imposto/100)
+            lucro_liq = preco_venda - val_imposto - custo
+            margem_real = (lucro_liq / preco_venda) * 100 if preco_venda > 0 else 0
             
-            progresso = min(100, int((margem_contribuicao/preco_unitario)*100))
-            st.progress(progresso)
-            st.caption(f"Margem de Contribuição: R$ {margem_contribuicao:.2f} por item")
+            st.markdown("---")
+            # Gráfico Velocímetro
+            fig_gauge = go.Figure(go.Indicator(
+                mode = "gauge+number",
+                value = margem_real,
+                title = {'text': "Margem Real"},
+                gauge = {
+                    'axis': {'range': [-10, 60]},
+                    'bar': {'color': "#3b82f6"},
+                    'steps': [
+                        {'range': [-10, 0], 'color': "#ef4444"},
+                        {'range': [0, 15], 'color': "#f59e0b"},
+                        {'range': [15, 60], 'color': "#10b981"}
+                    ]
+                }
+            ))
+            fig_gauge.update_layout(height=250, margin=dict(l=20, r=20, t=30, b=20))
+            st.plotly_chart(fig_gauge, use_container_width=True)
+            
+            st.info(f"Preço Sugerido: **R$ {preco_venda:.2f}** | Lucro Líquido: **R$ {lucro_liq:.2f}**")
+
+    with sim_col2:
+        with st.container(border=True):
+            st.subheader("2. Ponto de Equilíbrio (Break-even)")
+            custo_fixo = st.number_input("Custo Fixo Mensal (R$)", 0.0, 100000.0, 5000.0)
+            
+            mc = preco_venda - (custo + val_imposto) # Margem de contribuição
+            
+            if mc > 0:
+                qtd_eq = custo_fixo / mc
+                receita_eq = qtd_eq * preco_venda
+                
+                # Gráfico de Linhas Cruzadas
+                x = list(range(0, int(qtd_eq * 1.8), 5))
+                y_rec = [xi * preco_venda for xi in x]
+                y_cus = [custo_fixo + (custo + val_imposto) * xi for xi in x]
+                
+                fig_be = go.Figure()
+                fig_be.add_trace(go.Scatter(x=x, y=y_rec, name="Receita", line=dict(color="#10b981", width=3)))
+                fig_be.add_trace(go.Scatter(x=x, y=y_cus, name="Custos", line=dict(color="#ef4444", width=3)))
+                fig_be.add_vline(x=qtd_eq, line_dash="dot", annotation_text="Break-even")
+                
+                fig_be.update_layout(height=300, margin=dict(l=0, r=0, t=30, b=0), showlegend=True)
+                st.plotly_chart(fig_be, use_container_width=True)
+                
+                st.success(f"Venda **{int(qtd_eq)} unidades** para pagar as contas.")
+            else:
+                st.error("Preço insuficiente para cobrir custos variáveis!")
 
 # ==============================================================================
-# RODAPÉ COM SUA ASSINATURA MP
+# RODAPÉ
 # ==============================================================================
 with st.sidebar:
     st.markdown("---")
-    st.markdown("""
-        <style>
-        .logo-container {
-            display: flex; justify-content: center; align-items: center;
-            background-color: #0E1117; border: 2px solid #4B4B4B;
-            border-radius: 12px; width: 80px; height: 80px; margin: auto;
-            margin-bottom: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        }
-        .logo-text {
-            font-family: 'Helvetica', sans-serif; font-weight: bold;
-            font-size: 35px; color: #FFFFFF; margin: 0; line-height: 1;
-        }
-        </style>
-        <div class="logo-container"><p class="logo-text">MP</p></div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("<div style='text-align: center'>", unsafe_allow_html=True)
-    st.markdown("Desenvolvido por:")
-    st.markdown("**Maurílio Pereira Santana Oliveira Nunes**")
+    st.markdown("**Desenvolvido por:**")
+    st.markdown("Maurílio Pereira Santana Oliveira Nunes")
     st.caption("📧 mauriliopnunes77@gmail.com")
-    st.markdown("</div>", unsafe_allow_html=True)
