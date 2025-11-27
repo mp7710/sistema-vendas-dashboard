@@ -4,133 +4,149 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # Configuração da página
-st.set_page_config(page_title="Dashboard de Vendas", layout="wide")
+st.set_page_config(page_title="Consultor Inteligente de Vendas", layout="wide")
 sns.set_style("whitegrid")
 
-# --- BARRA LATERAL (CONFIGURAÇÕES) ---
-st.sidebar.title("🎛️ Painel de Controle")
-st.sidebar.write("Defina suas metas de lucro aqui:")
+# Título Principal
+st.title("💼 Consultor Inteligente de Negócios")
+st.write("Analise seus dados passados e simule o futuro do seu negócio.")
 
-# Inputs Interativos
-meta_eletronicos = st.sidebar.slider("Meta Eletrônicos (%)", 10, 50, 10) / 100
-meta_moda = st.sidebar.slider("Meta Moda (%)", 20, 80, 50) / 100
-meta_servicos = st.sidebar.slider("Meta Serviços (%)", 50, 100, 80) / 100
-meta_padrao = st.sidebar.slider("Meta Padrão (Outros)", 10, 50, 20) / 100
+# Criação de Abas para separar "Análise de Arquivo" das "Simulações"
+aba1, aba2 = st.tabs(["📊 Dashboard de Vendas (Excel)", "🧠 Simulador Estratégico (Calculadora)"])
 
-# Dicionário de metas
-metas_por_categoria = {
-    "Eletronicos": meta_eletronicos,
-    "Moda": meta_moda,
-    "Servicos": meta_servicos,
-    "Geral": meta_padrao # Adicionei o Geral aqui
-}
-
-# --- TÍTULO DO SITE ---
-st.title("📊 Gestão Inteligente de Vendas")
-st.write("Faça upload da sua planilha para receber a análise.")
-
-# --- UPLOAD DO ARQUIVO ---
-arquivo_upload = st.file_uploader("Arraste seu arquivo Excel aqui", type=["xlsx"])
-
-if arquivo_upload is not None:
-    # Lê o arquivo
-    tabela = pd.read_excel(arquivo_upload)
+# ==============================================================================
+# ABA 1: O DASHBOARD DE VENDAS (Seu código original melhorado)
+# ==============================================================================
+with aba1:
+    st.header("Análise de Dados Históricos")
     
-    # --- A MUDANÇA MÁGICA AQUI ---
-    # Se não tiver a coluna Categoria, a gente cria ela na marra!
-    if "Categoria" not in tabela.columns:
-        tabela["Categoria"] = "Geral"
-        st.warning("⚠️ Aviso: Não encontrei a coluna 'Categoria'. Classifiquei tudo como 'Geral' para não dar erro.")
-    
-    # CÁLCULOS
-    tabela["Faturamento"] = tabela["Vendas"] * tabela["Preço"]
-    tabela["Lucro"] = tabela["Faturamento"] - (tabela["Custo"] * tabela["Vendas"])
-    
-    # --- MÉTRICAS GERAIS ---
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Faturamento Total", f"R$ {tabela['Faturamento'].sum():,.2f}")
-    col2.metric("Lucro Total", f"R$ {tabela['Lucro'].sum():,.2f}")
-    col3.metric("Total Vendido (Qtd)", int(tabela['Vendas'].sum()))
+    # Barra lateral de metas (agora específica para esta aba)
+    with st.expander("⚙️ Configurar Metas de Lucro para o Gráfico"):
+        meta_eletronicos = st.slider("Meta Eletrônicos (%)", 10, 50, 10) / 100
+        meta_moda = st.slider("Meta Moda (%)", 20, 80, 50) / 100
+        meta_servicos = st.slider("Meta Serviços (%)", 50, 100, 80) / 100
+        meta_geral = st.slider("Meta Geral (%)", 10, 50, 20) / 100
 
-    st.divider()
+    metas_por_categoria = {
+        "Eletronicos": meta_eletronicos,
+        "Moda": meta_moda,
+        "Servicos": meta_servicos,
+        "Geral": meta_geral
+    }
 
-    # --- O ASSISTENTE VIRTUAL ---
-    st.subheader("🤖 Análise do Assistente")
-    
-    for index, linha in tabela.iterrows():
-        produto = linha["Produto"]
-        categoria = linha["Categoria"]
-        lucro = linha["Lucro"]
-        faturamento = linha["Faturamento"]
+    arquivo_upload = st.file_uploader("Arraste seu relatorio_vendas.xlsx aqui", type=["xlsx"])
+
+    if arquivo_upload is not None:
+        tabela = pd.read_excel(arquivo_upload)
         
-        # Busca a meta (se for Geral, usa a meta padrão)
-        meta_alvo = metas_por_categoria.get(categoria, meta_padrao)
+        # Tratamento de erro se não tiver categoria
+        if "Categoria" not in tabela.columns:
+            tabela["Categoria"] = "Geral"
+            st.warning("⚠️ Coluna 'Categoria' não encontrada. Usando 'Geral'.")
         
-        if faturamento > 0:
-            margem_real = lucro / faturamento
+        # Cálculos básicos
+        tabela["Faturamento"] = tabela["Vendas"] * tabela["Preço"]
+        tabela["Lucro"] = tabela["Faturamento"] - (tabela["Custo"] * tabela["Vendas"])
+        
+        # Métricas
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Faturamento Total", f"R$ {tabela['Faturamento'].sum():,.2f}")
+        col2.metric("Lucro Total", f"R$ {tabela['Lucro'].sum():,.2f}")
+        col3.metric("Total Vendido (Qtd)", int(tabela['Vendas'].sum()))
+        
+        st.divider()
+        
+        # Assistente Virtual
+        st.subheader("🤖 Diagnóstico Automático")
+        for index, linha in tabela.iterrows():
+            produto = linha["Produto"]
+            categoria = linha["Categoria"]
+            lucro = linha["Lucro"]
+            faturamento = linha["Faturamento"]
+            meta = metas_por_categoria.get(categoria, meta_geral)
             
-            if lucro < 0:
-                st.error(f"🔴 **{produto}**: Prejuízo de R$ {lucro:.2f}. Reveja custos!")
-            elif margem_real < meta_alvo:
-                st.warning(f"⚠️ **{produto}**: Margem de {margem_real:.1%} (Meta: {meta_alvo:.0%}).")
-            else:
-                st.success(f"✅ **{produto}**: Excelente! Margem de {margem_real:.1%}.")
+            if faturamento > 0:
+                margem_real = lucro / faturamento
+                if lucro < 0:
+                    st.error(f"🔴 **{produto}**: Prejuízo de R$ {lucro:.2f}!")
+                elif margem_real < meta:
+                    st.warning(f"⚠️ **{produto}**: Margem de {margem_real:.1%} (Abaixo da meta de {meta:.0%})")
+                else:
+                    st.success(f"✅ **{produto}**: Margem Saudável de {margem_real:.1%}")
 
-    # --- MOSTRAR TABELA ---
-    with st.expander("Ver Tabela Completa"):
-        st.dataframe(tabela)
-
-    # --- GRÁFICOS ---
-    col_graf1, col_graf2 = st.columns(2)
-    
-    with col_graf1:
-        st.subheader("Lucro por Produto")
-        fig1, ax1 = plt.subplots()
+        # Visualização Gráfica
+        st.subheader("Performance Visual")
+        fig, ax = plt.subplots(figsize=(10, 4))
         cores = ['red' if l < 0 else 'green' for l in tabela['Lucro']]
-        sns.barplot(data=tabela, x="Produto", y="Lucro", palette=cores, ax=ax1)
-        ax1.set_xticklabels(ax1.get_xticklabels(), rotation=45)
-        st.pyplot(fig1)
-        
-    with col_graf2:
-        st.subheader("Vendas por Categoria")
-        fig2, ax2 = plt.subplots()
-        # Se tudo for "Geral", o gráfico vai mostrar uma fatia só, mas funciona!
-        tabela.groupby("Categoria")["Faturamento"].sum().plot.pie(autopct='%1.1f%%', ax=ax2)
-        ax2.set_ylabel('')
-        st.pyplot(fig2)
-
-else:
-    st.info("Aguardando upload do arquivo...")
-# --- ADICIONE ISTO NO FINAL DO SEU ARQUIVO APP.PY ---
-
-st.divider() # Uma linha divisória bonita
-
-st.header("🧮 Calculadora de Precificação Inteligente")
-st.write("Descubra por quanto você deve vender para ter o lucro desejado.")
-
-# Cria 3 colunas para ficar organizado
-col_calc1, col_calc2, col_calc3 = st.columns(3)
-
-with col_calc1:
-    custo_prod = st.number_input("Custo do Produto (R$)", min_value=0.0, value=50.0)
-
-with col_calc2:
-    margem_desejada = st.number_input("Margem de Lucro Desejada (%)", min_value=1.0, value=30.0) / 100
-
-with col_calc3:
-    imposto = st.number_input("Impostos/Taxas (%)", min_value=0.0, value=10.0) / 100
-
-# Botão para calcular
-if st.button("Calcular Preço Ideal"):
-    # Fórmula: Preço = Custo / (1 - (Margem + Imposto))
-    # Essa é a fórmula correta de Markup (formação de preço de venda)
-    divisor = 1 - (margem_desejada + imposto)
-    
-    if divisor <= 0:
-        st.error("Erro: A soma de Margem + Imposto não pode passar de 100%!")
+        sns.barplot(data=tabela, x="Produto", y="Lucro", palette=cores, ax=ax)
+        plt.xticks(rotation=45)
+        st.pyplot(fig)
     else:
-        preco_ideal = custo_prod / divisor
-        lucro_liquido = preco_ideal * margem_desejada
+        st.info("Aguardando upload do arquivo Excel...")
+
+# ==============================================================================
+# ABA 2: O SIMULADOR ESTRATÉGICO (O pedido dos áudios!)
+# ==============================================================================
+with aba2:
+    st.header("Ferramentas de Decisão Financeira")
+    st.write("Simule cenários e descubra a verdade sobre seus números.")
+    
+    col_esq, col_dir = st.columns(2)
+
+    # --- FERRAMENTA 1: MARKUP vs MARGEM REAL (O "Choque de Realidade") ---
+    with col_esq:
+        st.subheader("🔍 A Ilusão do Lucro (Markup vs Margem)")
+        st.caption("Você acha que ganha X, mas na verdade ganha Y.")
         
-        st.success(f"💰 Venda por: **R$ {preco_ideal:.2f}**")
-        st.info(f"Você vai lucrar livre: **R$ {lucro_liquido:.2f}** por unidade.")
+        custo_produto = st.number_input("Custo de Compra (R$)", value=50.0)
+        markup_aplicado = st.number_input("Quanto você adiciona em cima? (%)", value=30.0)
+        imposto = st.number_input("Impostos sobre venda (%)", value=5.0)
+        
+        # Cálculos
+        preco_venda = custo_produto * (1 + markup_aplicado/100)
+        valor_imposto = preco_venda * (imposto/100)
+        lucro_liquido = preco_venda - valor_imposto - custo_produto
+        margem_real = (lucro_liquido / preco_venda) * 100
+        
+        st.divider()
+        st.write(f"🏷️ Preço Final de Venda: **R$ {preco_venda:.2f}**")
+        
+        # Comparativo Visual
+        col_a, col_b = st.columns(2)
+        col_a.metric(label="O que você ACHOU que ganharia", value=f"{markup_aplicado}%")
+        col_b.metric(label="Sua Margem REAL (No bolso)", value=f"{margem_real:.1f}%", delta=f"{margem_real - markup_aplicado:.1f}%")
+        
+        if margem_real < 10:
+            st.error("🚨 Cuidado! Sua margem real está perigosamente baixa.")
+        else:
+            st.info(f"De cada R$ 100,00 vendidos, sobram R$ {margem_real:.2f} limpos.")
+
+    # --- FERRAMENTA 2: PONTO DE EQUILÍBRIO (Break-even) ---
+    with col_dir:
+        st.subheader("⚖️ Ponto de Equilíbrio")
+        st.caption("Quantas unidades vender só para pagar as contas?")
+        
+        custo_fixo = st.number_input("Custo Fixo Mensal (Aluguel, Luz, Salários)", value=5000.0)
+        
+        # Usando os dados da simulação ao lado ou novos
+        st.write("--- Dados do Produto ---")
+        preco_unitario = st.number_input("Preço Médio de Venda (R$)", value=preco_venda, disabled=True)
+        custo_variavel = st.number_input("Custo Variável Unitário (Produto + Imposto)", value=custo_produto + valor_imposto, disabled=True)
+        
+        # Cálculo
+        margem_contribuicao = preco_unitario - custo_variavel
+        
+        if margem_contribuicao <= 0:
+            st.error("Erro: Você perde dinheiro em cada venda! Aumente o preço.")
+        else:
+            qtd_equilibrio = custo_fixo / margem_contribuicao
+            faturamento_equilibrio = qtd_equilibrio * preco_unitario
+            
+            st.divider()
+            st.metric("Meta Mínima de Vendas (Qtd)", f"{int(qtd_equilibrio)} unidades")
+            st.write(f"Isso gera um faturamento de **R$ {faturamento_equilibrio:,.2f}** apenas para pagar os R$ {custo_fixo:,.2f} de custo fixo.")
+            
+            # Barrinha visual
+            progresso = min(100, int((margem_contribuicao/preco_unitario)*100))
+            st.progress(progresso)
+            st.caption(f"Cada produto contribui com R$ {margem_contribuicao:.2f} para pagar o aluguel.")
