@@ -2,96 +2,151 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.linear_model import LinearRegression
 
-# Configuração visual do Matplotlib/Seaborn
+# Configuração da página
+st.set_page_config(page_title="Consultor Inteligente de Vendas", layout="wide")
 sns.set_style("whitegrid")
 
-# --- ESTRUTURA E LAYOUT DO STREAMLIT ---
-st.title("🚀 Consultor de Negócios 2.0")
+# Título Principal
+st.title("💼 Consultor Inteligente de Negócios")
+st.write("Analise seus dados passados e simule o futuro do seu negócio.")
 
-# Área de Upload na Barra Lateral (Sidebar)
-uploaded_file = st.sidebar.file_uploader("Carregar Planilha", type=["xlsx"], 
-                                         help="Faça o upload da planilha de vendas (.xlsx)")
+# Criação de Abas para separar "Análise de Arquivo" das "Simulações"
+aba1, aba2 = st.tabs(["📊 Dashboard de Vendas (Excel)", "🧠 Simulador Estratégico (Calculadora)"])
 
-# Definição das Abas
-tab1, tab2 = st.tabs(["📊 Dashboard Interativo", "🤖 Simulador de Lucro"])
+# ==============================================================================
+# ABA 1: O DASHBOARD DE VENDAS (Seu código original melhorado)
+# ==============================================================================
+with aba1:
+    st.header("Análise de Dados Históricos")
+    
+    # Barra lateral de metas (agora específica para esta aba)
+    with st.expander("⚙️ Configurar Metas de Lucro para o Gráfico"):
+        meta_eletronicos = st.slider("Meta Eletrônicos (%)", 10, 50, 10) / 100
+        meta_moda = st.slider("Meta Moda (%)", 20, 80, 50) / 100
+        meta_servicos = st.slider("Meta Serviços (%)", 50, 100, 80) / 100
+        meta_geral = st.slider("Meta Geral (%)", 10, 50, 20) / 100
 
-# --- LÓGICA PRINCIPAL (Executa se o arquivo foi carregado) ---
-if uploaded_file is not None:
-    try:
-        # Lê o Excel para um DataFrame
-        tabela_original = pd.read_excel(uploaded_file)
-        df = tabela_original.copy() # Cria uma cópia para trabalhar
+    metas_por_categoria = {
+        "Eletronicos": meta_eletronicos,
+        "Moda": meta_moda,
+        "Servicos": meta_servicos,
+        "Geral": meta_geral
+    }
+
+    arquivo_upload = st.file_uploader("Arraste seu relatorio_vendas.xlsx aqui", type=["xlsx"])
+
+    if arquivo_upload is not None:
+        tabela = pd.read_excel(arquivo_upload)
         
-        # 1. ENGENHARIA DE RECURSOS (Cálculos de Lucro e Faturamento)
-        if "Preco_Unitario" in df.columns and "Custo_Unitario" in df.columns and "Quantidade" in df.columns:
-            df["Faturamento"] = df["Quantidade"] * df["Preco_Unitario"]
-            df["Custo_Total"] = df["Quantidade"] * df["Custo_Unitario"]
-            df["Lucro"] = df["Faturamento"] - df["Custo_Total"]
+        # Tratamento de erro se não tiver categoria
+        if "Categoria" not in tabela.columns:
+            tabela["Categoria"] = "Geral"
+            st.warning("⚠️ Coluna 'Categoria' não encontrada. Usando 'Geral'.")
+        
+        # Cálculos básicos
+        tabela["Faturamento"] = tabela["Vendas"] * tabela["Preço"]
+        tabela["Lucro"] = tabela["Faturamento"] - (tabela["Custo"] * tabela["Vendas"])
+        
+        # Métricas
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Faturamento Total", f"R$ {tabela['Faturamento'].sum():,.2f}")
+        col2.metric("Lucro Total", f"R$ {tabela['Lucro'].sum():,.2f}")
+        col3.metric("Total Vendido (Qtd)", int(tabela['Vendas'].sum()))
+        
+        st.divider()
+        
+        # Assistente Virtual
+        st.subheader("🤖 Diagnóstico Automático")
+        for index, linha in tabela.iterrows():
+            produto = linha["Produto"]
+            categoria = linha["Categoria"]
+            lucro = linha["Lucro"]
+            faturamento = linha["Faturamento"]
+            meta = metas_por_categoria.get(categoria, meta_geral)
+            
+            if faturamento > 0:
+                margem_real = lucro / faturamento
+                if lucro < 0:
+                    st.error(f"🔴 **{produto}**: Prejuízo de R$ {lucro:.2f}!")
+                elif margem_real < meta:
+                    st.warning(f"⚠️ **{produto}**: Margem de {margem_real:.1%} (Abaixo da meta de {meta:.0%})")
+                else:
+                    st.success(f"✅ **{produto}**: Margem Saudável de {margem_real:.1%}")
+
+        # Visualização Gráfica
+        st.subheader("Performance Visual")
+        fig, ax = plt.subplots(figsize=(10, 4))
+        cores = ['red' if l < 0 else 'green' for l in tabela['Lucro']]
+        sns.barplot(data=tabela, x="Produto", y="Lucro", palette=cores, ax=ax)
+        plt.xticks(rotation=45)
+        st.pyplot(fig)
+    else:
+        st.info("Aguardando upload do arquivo Excel...")
+
+# ==============================================================================
+# ABA 2: O SIMULADOR ESTRATÉGICO (O pedido dos áudios!)
+# ==============================================================================
+with aba2:
+    st.header("Ferramentas de Decisão Financeira")
+    st.write("Simule cenários e descubra a verdade sobre seus números.")
+    
+    col_esq, col_dir = st.columns(2)
+
+    # --- FERRAMENTA 1: MARKUP vs MARGEM REAL (O "Choque de Realidade") ---
+    with col_esq:
+        st.subheader("🔍 A Ilusão do Lucro (Markup vs Margem)")
+        st.caption("Você acha que ganha X, mas na verdade ganha Y.")
+        
+        custo_produto = st.number_input("Custo de Compra (R$)", value=50.0)
+        markup_aplicado = st.number_input("Quanto você adiciona em cima? (%)", value=30.0)
+        imposto = st.number_input("Impostos sobre venda (%)", value=5.0)
+        
+        # Cálculos
+        preco_venda = custo_produto * (1 + markup_aplicado/100)
+        valor_imposto = preco_venda * (imposto/100)
+        lucro_liquido = preco_venda - valor_imposto - custo_produto
+        margem_real = (lucro_liquido / preco_venda) * 100
+        
+        st.divider()
+        st.write(f"🏷️ Preço Final de Venda: **R$ {preco_venda:.2f}**")
+        
+        # Comparativo Visual
+        col_a, col_b = st.columns(2)
+        col_a.metric(label="O que você ACHOU que ganharia", value=f"{markup_aplicado}%")
+        col_b.metric(label="Sua Margem REAL (No bolso)", value=f"{margem_real:.1f}%", delta=f"{margem_real - markup_aplicado:.1f}%")
+        
+        if margem_real < 10:
+            st.error("🚨 Cuidado! Sua margem real está perigosamente baixa.")
         else:
-            st.error("As colunas essenciais ('Preco_Unitario', 'Custo_Unitario', 'Quantidade') não foram encontradas. Verifique sua planilha.")
-            # Sai da execução se as colunas não existirem
-            st.stop()
+            st.info(f"De cada R$ 100,00 vendidos, sobram R$ {margem_real:.2f} limpos.")
+
+    # --- FERRAMENTA 2: PONTO DE EQUILÍBRIO (Break-even) ---
+    with col_dir:
+        st.subheader("⚖️ Ponto de Equilíbrio")
+        st.caption("Quantas unidades vender só para pagar as contas?")
+        
+        custo_fixo = st.number_input("Custo Fixo Mensal (Aluguel, Luz, Salários)", value=5000.0)
+        
+        # Usando os dados da simulação ao lado ou novos
+        st.write("--- Dados do Produto ---")
+        preco_unitario = st.number_input("Preço Médio de Venda (R$)", value=preco_venda, disabled=True)
+        custo_variavel = st.number_input("Custo Variável Unitário (Produto + Imposto)", value=custo_produto + valor_imposto, disabled=True)
+        
+        # Cálculo
+        margem_contribuicao = preco_unitario - custo_variavel
+        
+        if margem_contribuicao <= 0:
+            st.error("Erro: Você perde dinheiro em cada venda! Aumente o preço.")
+        else:
+            qtd_equilibrio = custo_fixo / margem_contribuicao
+            faturamento_equilibrio = qtd_equilibrio * preco_unitario
             
-        # 2. ANÁLISE (Agrupamento por Produto)
-        resumo_por_produto = df.groupby("Produto")[["Lucro", "Quantidade"]].sum().sort_values(by="Lucro", ascending=False)
-
-
-        # ==========================================================
-        # ABAS: 1. DASHBOARD INTERATIVO
-        # ==========================================================
-        with tab1:
-            st.header("Análise Detalhada de Lucro")
+            st.divider()
+            st.metric("Meta Mínima de Vendas (Qtd)", f"{int(qtd_equilibrio)} unidades")
+            st.write(f"Isso gera um faturamento de **R$ {faturamento_equilibrio:,.2f}** apenas para pagar os R$ {custo_fixo:,.2f} de custo fixo.")
             
-            # Métrica de Lucro Total
-            lucro_total = resumo_por_produto["Lucro"].sum()
-            st.metric(label="💰 Lucro Total da Empresa", value=f"R$ {lucro_total:,.2f}")
-
-            # Exibição do Resumo (Tabela)
-            st.subheader("Ranking de Lucro por Produto")
-            st.dataframe(resumo_por_produto, use_container_width=True)
-
-            # Gráfico de Lucratividade
-            st.subheader("Visualização dos Resultados")
-            fig, ax = plt.subplots(figsize=(10, 5)) 
-            sns.barplot(x=resumo_por_produto.index, y=resumo_por_produto["Lucro"], ax=ax, palette="viridis")
-            ax.set_title("Lucro por Categoria de Produto")
-            ax.set_ylabel("Lucro (R$)")
-            plt.xticks(rotation=45) 
-            st.pyplot(fig) # Comando para mostrar gráfico no site
-
-
-        # ==========================================================
-        # ABAS: 2. SIMULADOR DE LUCRO (MACHINE LEARNING)
-        # ==========================================================
-        with tab2:
-            st.header("Previsão de Lucro com Machine Learning")
-            st.write("O modelo de Regressão Linear foi treinado para encontrar a tendência entre 'Quantidade Vendida' e 'Lucro Total'.")
-            
-            # Treinamento da IA
-            X = df[["Quantidade"]]
-            y = df["Lucro"]
-            modelo = LinearRegression()
-            modelo.fit(X, y)
-            
-            # Input do Usuário (Simulador)
-            st.subheader("Defina a sua Meta de Vendas")
-            qtd_usuario = st.slider("Quantidade de itens que você pretende vender (em um período):", 
-                                    min_value=10, max_value=200, value=50, step=10)
-            
-            # Previsão da IA
-            previsao = modelo.predict([[qtd_usuario]])
-            
-            st.markdown("---")
-            st.subheader("Resultado da Previsão")
-            st.metric(label=f"Lucro Estimado para {qtd_usuario} Vendas", value=f"R$ {previsao[0]:,.2f}")
-
-    except Exception as e:
-        st.error(f"Ocorreu um erro ao processar seus dados. Detalhes: {e}")
-        st.info("Verifique se as colunas (Preco_Unitario, Custo_Unitario, Quantidade) estão corretas na planilha.")
-
-# Se o arquivo não foi carregado, mostra a mensagem de instrução
-else:
-    with tab1:
-        st.info("⬆️ Faça o upload da sua planilha de vendas na barra lateral esquerda para começar a análise.")
+            # Barrinha visual
+            progresso = min(100, int((margem_contribuicao/preco_unitario)*100))
+            st.progress(progresso)
+            st.caption(f"Cada produto contribui com R$ {margem_contribuicao:.2f} para pagar o aluguel.")
