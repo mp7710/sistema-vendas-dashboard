@@ -52,7 +52,7 @@ aba1, aba2 = st.tabs(["📊 Visão Geral (BI)", "🧠 Simulador de Precificaçã
 
 # VARIÁVEIS GLOBAIS
 tabela_filtrada = None
-nome_coluna_data = None # Para guardar o nome exato da coluna de data
+nome_coluna_data = None 
 
 if arquivo_upload is not None:
     # --- LEITURA E TRATAMENTO DOS DADOS ---
@@ -81,16 +81,12 @@ if arquivo_upload is not None:
         tabela["Margem_Perc"] = (tabela["Lucro"] / tabela["Faturamento"]) * 100
         
         # --- FILTRO DE DATA AUTOMÁTICO ---
-        # Procura colunas que tenham "Data" ou "date" no nome
         col_data_encontrada = [col for col in tabela.columns if 'Data' in col or 'date' in col.lower()]
         
         if col_data_encontrada:
-            nome_coluna_data = col_data_encontrada[0] # Pega o nome real (ex: "Data", "Data Venda")
-            
-            # Converte para data
+            nome_coluna_data = col_data_encontrada[0]
             tabela[nome_coluna_data] = pd.to_datetime(tabela[nome_coluna_data])
             
-            # Pega data min e max para o filtro
             data_min = tabela[nome_coluna_data].min()
             data_max = tabela[nome_coluna_data].max()
             
@@ -104,15 +100,11 @@ if arquivo_upload is not None:
                     max_value=data_max
                 )
             
-            # Aplica o filtro
             tabela_filtrada = tabela[
                 (tabela[nome_coluna_data].dt.date >= data_inicio) & 
                 (tabela[nome_coluna_data].dt.date <= data_fim)
             ]
-            
-            # Ordena por data (mais recente primeiro) para ficar bonito na tabela
             tabela_filtrada = tabela_filtrada.sort_values(by=nome_coluna_data, ascending=False)
-            
         else:
             tabela_filtrada = tabela
 
@@ -135,9 +127,31 @@ with aba1:
         
         kpi1.metric("💰 Faturamento", f"R$ {fat_total:,.2f}")
         kpi2.metric("💸 Lucro Líquido", f"R$ {lucro_total:,.2f}", delta_color="normal")
-        kpi3.metric("📦 Vendas (Qtd)", f"{int(vendas_total)}")
+        kpi3.metric("📦 Vendas Totais", f"{int(vendas_total)} unidades")
         kpi4.metric("📈 Margem Média", f"{margem_media:.1f}%", 
                    delta=f"{margem_media - (meta_geral*100):.1f}% vs Meta")
+        
+        # --- NOVIDADE: DETALHAMENTO DE VENDAS (EXPANDER) ---
+        with st.expander(f"🔎 Clique para ver o detalhe das {int(vendas_total)} unidades vendidas"):
+            st.write("Resumo de quantidade vendida por produto:")
+            
+            # Cria uma tabela resumida só com Produto e Quantidade
+            resumo_qtd = tabela_filtrada.groupby("Produto")[["Vendas"]].sum(numeric_only=True).sort_values("Vendas", ascending=False).reset_index()
+            
+            # Mostra como tabela visual
+            st.dataframe(
+                resumo_qtd,
+                column_config={
+                    "Vendas": st.column_config.ProgressColumn(
+                        "Quantidade", 
+                        format="%d un", 
+                        min_value=0, 
+                        max_value=int(resumo_qtd["Vendas"].max())
+                    )
+                },
+                use_container_width=True,
+                hide_index=True
+            )
         
         st.divider()
         
@@ -145,17 +159,38 @@ with aba1:
         g_col1, g_col2 = st.columns([2, 1])
         
         with g_col1:
-            st.subheader("Performance por Produto")
+            # Seletor para mudar o gráfico
+            tipo_analise = st.radio(
+                "O que você quer analisar no gráfico?",
+                ["Lucro (R$)", "Quantidade Vendida (Un)", "Faturamento (R$)"],
+                horizontal=True
+            )
             
-            # Agrupa dados para o gráfico (numeric_only=True para ignorar datas)
+            # Define qual coluna usar baseada na escolha
+            coluna_y = "Lucro"
+            cor_grafico = "Lucro"
+            titulo_grafico = "Ranking de Lucratividade"
+            formato_texto = "R$ .2s"
+
+            if tipo_analise == "Quantidade Vendida (Un)":
+                coluna_y = "Vendas"
+                cor_grafico = "Vendas"
+                titulo_grafico = "Produtos Mais Vendidos (Volume)"
+                formato_texto = ".0f"
+            elif tipo_analise == "Faturamento (R$)":
+                coluna_y = "Faturamento"
+                cor_grafico = "Faturamento"
+                titulo_grafico = "Produtos com Maior Receita"
+
+            # Agrupa dados (numeric_only=True para ignorar datas)
             dados_grafico = tabela_filtrada.groupby("Produto").sum(numeric_only=True).reset_index()
             
             fig_bar = px.bar(
                 dados_grafico,
-                x="Produto", y="Lucro", color="Lucro",
+                x="Produto", y=coluna_y, color=cor_grafico,
                 color_continuous_scale=["#ef4444", "#fbbf24", "#22c55e"],
-                title="Ranking de Lucratividade",
-                text_auto='.2s'
+                title=titulo_grafico,
+                text_auto=formato_texto
             )
             fig_bar.update_layout(xaxis_title=None, yaxis_title=None)
             st.plotly_chart(fig_bar, use_container_width=True)
@@ -169,24 +204,23 @@ with aba1:
             fig_pie.update_traces(textposition='inside', textinfo='percent+label')
             st.plotly_chart(fig_pie, use_container_width=True)
             
-        # --- LINHA 3: TABELA COMPLETA (TODOS OS DADOS) ---
+        # --- LINHA 3: TABELA COMPLETA ---
         st.subheader("📋 Detalhamento de Transações")
         
-        # Prepara a configuração das colunas
         config_colunas = {
             "Preço": st.column_config.NumberColumn(format="R$ %.2f"),
             "Custo": st.column_config.NumberColumn(format="R$ %.2f"),
             "Faturamento": st.column_config.NumberColumn(format="R$ %.2f"),
             "Lucro": st.column_config.NumberColumn(format="R$ %.2f"),
+            "Vendas": st.column_config.NumberColumn("Qtd", format="%d"),
             "Margem_Perc": st.column_config.ProgressColumn("Margem (%)", format="%.1f%%", min_value=-10, max_value=100)
         }
         
-        # Se achou uma coluna de data, formata ela também
         if nome_coluna_data:
             config_colunas[nome_coluna_data] = st.column_config.DateColumn("Data da Venda", format="DD/MM/YYYY")
 
         st.dataframe(
-            tabela_filtrada, # Passa a tabela inteira, sem cortar nada
+            tabela_filtrada, 
             column_config=config_colunas,
             use_container_width=True,
             hide_index=True
@@ -269,3 +303,4 @@ with st.sidebar:
     st.markdown("**Desenvolvido por:**")
     st.markdown("Maurílio Pereira Santana Oliveira Nunes")
     st.caption("📧 mauriliopnunes77@gmail.com")
+
