@@ -40,8 +40,7 @@ with st.sidebar:
     
     st.markdown("---")
     st.write("🎯 **Metas de Margem**")
-    # Multiplicamos por 100 no visual, mas usamos decimal no código
-    meta_geral = st.slider("Meta Global de Margem (%)", 0, 100, 20) 
+    meta_geral = st.slider("Meta Global (%)", 0, 100, 20) / 100
 
 # ==============================================================================
 # 3. CORPO PRINCIPAL
@@ -76,11 +75,11 @@ if arquivo_upload is not None:
         if "Categoria" not in tabela.columns:
             tabela["Categoria"] = "Geral"
             
-        # CÁLCULOS FINANCEIROS (LINHA A LINHA)
+        # CÁLCULOS FINANCEIROS
         tabela["Faturamento"] = tabela["Vendas"] * tabela["Preço"]
         tabela["Lucro"] = tabela["Faturamento"] - (tabela["Custo"] * tabela["Vendas"])
         
-        # Evita divisão por zero
+        # Margem (evita divisão por zero)
         tabela["Margem_Perc"] = tabela.apply(lambda x: (x["Lucro"] / x["Faturamento"] * 100) if x["Faturamento"] > 0 else 0, axis=1)
         
         # --- FILTRO DE DATA AUTOMÁTICO ---
@@ -132,32 +131,30 @@ with aba1:
         kpi2.metric("💸 Lucro Líquido", f"R$ {lucro_total:,.2f}", delta_color="normal")
         kpi3.metric("📦 Vendas Totais", f"{int(vendas_total)} un")
         kpi4.metric("📈 Margem Média", f"{margem_media:.1f}%", 
-                   delta=f"{margem_media - meta_geral:.1f}% vs Meta")
+                   delta=f"{margem_media - (meta_geral*100):.1f}% vs Meta")
         
         st.divider()
 
         # ==============================================================================
-        # NOVA SEÇÃO: AUDITORIA DE PREÇOS E MARGENS
+        # SEÇÃO: AUDITORIA DE PREÇOS E MARGENS
         # ==============================================================================
         st.subheader("🔎 Auditoria de Precificação & Estratégia")
-        st.caption(f"Analisando todos os produtos com base na Meta Global de **{meta_geral}%** de margem.")
+        st.caption(f"Analisando todos os produtos com base na Meta Global de **{meta_geral*100:.0f}%** de margem.")
         
-        # Prepara dados agregados por produto (para não repetir linhas de vendas diferentes do mesmo item)
-        dados_produto = tabela_filtrada.groupby("Produto").agg({
-            "Preço": "mean",           # Preço médio
-            "Margem_Perc": "mean",     # Margem média
-            "Vendas": "sum",           # Total vendido
-            "Faturamento": "sum",
-            "Categoria": "first"       # Pega a categoria
+        # Agrupa dados para a auditoria
+        dados_auditoria = tabela_filtrada.groupby("Produto").agg({
+            "Preço": "mean",           
+            "Margem_Perc": "mean",     
+            "Vendas": "sum",           
+            "Categoria": "first"       
         }).reset_index()
 
         col_audit1, col_audit2 = st.columns([2, 1])
 
         with col_audit1:
             st.markdown("#### Matriz de Estratégia: Preço vs Margem")
-            # Gráfico de Dispersão (Bolhas)
             fig_scatter = px.scatter(
-                dados_produto,
+                dados_auditoria,
                 x="Preço", 
                 y="Margem_Perc",
                 size="Vendas", 
@@ -166,20 +163,18 @@ with aba1:
                 size_max=40,
                 title="Onde estão seus produtos? (Tamanho da bolha = Volume de Vendas)"
             )
-            # Adiciona linha da meta
-            fig_scatter.add_hline(y=meta_geral, line_dash="dash", line_color="red", annotation_text="Meta Global")
+            fig_scatter.add_hline(y=meta_geral*100, line_dash="dash", line_color="red", annotation_text="Meta Global")
             st.plotly_chart(fig_scatter, use_container_width=True)
-            st.info("💡 **Dica:** Produtos abaixo da linha vermelha estão com margem ruim. Bolhas grandes abaixo da linha são **prejuízo em escala**!")
+            st.info("💡 **Dica:** Produtos abaixo da linha vermelha estão com margem ruim.")
 
         with col_audit2:
             st.markdown("#### 🚨 Radar de Alerta")
-            # Filtra produtos críticos
-            produtos_criticos = dados_produto[dados_produto["Margem_Perc"] < meta_geral].sort_values("Margem_Perc")
+            produtos_criticos = dados_auditoria[dados_auditoria["Margem_Perc"] < (meta_geral*100)].sort_values("Margem_Perc")
             
             qtd_criticos = len(produtos_criticos)
             
             if qtd_criticos > 0:
-                st.error(f"**{qtd_criticos} Produtos** estão abaixo da meta de {meta_geral}%!")
+                st.error(f"**{qtd_criticos} Produtos** estão abaixo da meta!")
                 st.dataframe(
                     produtos_criticos[["Produto", "Margem_Perc", "Preço"]],
                     column_config={
@@ -198,7 +193,6 @@ with aba1:
         g_col1, g_col2 = st.columns([2, 1])
         
         with g_col1:
-            # Gráfico Flexível
             tipo_analise = st.radio(
                 "Visão Gráfica:",
                 ["Lucro (R$)", "Quantidade (Un)", "Faturamento (R$)"],
@@ -209,9 +203,14 @@ with aba1:
             if "Quantidade" in tipo_analise: col_y, cor, tit, fmt = "Vendas", "Vendas", "Volume de Vendas", ".0f"
             elif "Faturamento" in tipo_analise: col_y, cor, tit, fmt = "Faturamento", "Faturamento", "Curva ABC (Receita)", "R$ .2s"
 
-            # Reutiliza dados agregados
+            # -----------------------------------------------------------
+            # CORREÇÃO DEFINITIVA: AGRUPAMENTO FEITO AQUI, NA HORA DO USO
+            # -----------------------------------------------------------
+            # Criamos um DataFrame novo só para este gráfico, garantindo que as colunas existem
+            dados_grafico = tabela_filtrada.groupby("Produto")[["Lucro", "Vendas", "Faturamento"]].sum().reset_index()
+            
             fig_bar = px.bar(
-                dados_produto.sort_values(col_y, ascending=False).head(20), # Top 20
+                dados_grafico.sort_values(col_y, ascending=False).head(20), # Top 20
                 x="Produto", y=col_y, color=cor,
                 color_continuous_scale=["#ef4444", "#fbbf24", "#22c55e"],
                 title=tit, text_auto=fmt
@@ -349,4 +348,3 @@ with st.sidebar:
     st.markdown("**Desenvolvido por:**")
     st.markdown("Maurílio Pereira Santana Oliveira Nunes")
     st.caption("📧 mauriliopnunes77@gmail.com")
-
