@@ -12,18 +12,19 @@ st.title("💼 Consultor Inteligente de Negócios")
 st.write("Analise seus dados passados e simule o futuro do seu negócio.")
 
 # Criação de Abas
-aba1, aba2 = st.tabs(["📊 Dashboard de Vendas (Excel)", "🧠 Simulador Estratégico (Calculadora)"])
+aba1, aba2 = st.tabs(["📊 Dashboard de Vendas (Arquivo)", "🧠 Simulador Estratégico (Calculadora)"])
 
 # ==============================================================================
-# ABA 1: O DASHBOARD DE VENDAS (Matplotlib/Seaborn)
+# ABA 1: O DASHBOARD DE VENDAS
 # ==============================================================================
 with aba1:
     st.header("Análise de Dados Históricos")
     
-    # Barra lateral de metas
+    # Barra lateral
     with st.sidebar:
         st.header("🎛️ Painel de Controle")
-        arquivo_upload = st.file_uploader("📂 Carregar Planilha", type=["xlsx"])
+        # ACEITA CSV E EXCEL
+        arquivo_upload = st.file_uploader("📂 Carregar Planilha", type=["xlsx", "csv"])
         
         with st.expander("⚙️ Configurar Metas"):
             meta_eletronicos = st.slider("Meta Eletrônicos (%)", 10, 50, 10) / 100
@@ -39,29 +40,60 @@ with aba1:
     }
 
     if arquivo_upload is not None:
-        tabela = pd.read_excel(arquivo_upload)
-        
         # ---------------------------------------------------------
-        # BLOCO DE SEGURANÇA (CORREÇÃO DO ERRO KEYERROR)
+        # LEITURA INTELIGENTE (CSV OU EXCEL)
         # ---------------------------------------------------------
-        # Remove espaços extras nos nomes das colunas (ex: "Vendas " vira "Vendas")
+        try:
+            if arquivo_upload.name.endswith('.csv'):
+                try:
+                    tabela = pd.read_csv(arquivo_upload)
+                except:
+                    arquivo_upload.seek(0)
+                    tabela = pd.read_csv(arquivo_upload, sep=';')
+            else:
+                tabela = pd.read_excel(arquivo_upload)
+        except Exception as e:
+            st.error(f"Erro ao ler o arquivo: {e}")
+            st.stop()
+
+        # ---------------------------------------------------------
+        # TRADUTOR DE COLUNAS (O SEGREDO PARA A PLANILHA NOVA)
+        # ---------------------------------------------------------
+        # Remove espaços extras nos nomes das colunas
         tabela.columns = tabela.columns.str.strip()
         
-        colunas_obrigatorias = ["Vendas", "Preço", "Custo", "Produto"]
-        colunas_faltantes = [col for col in colunas_obrigatorias if col not in tabela.columns]
-
-        if colunas_faltantes:
-            st.error(f"❌ **Erro no Arquivo:** Faltam as colunas: {', '.join(colunas_faltantes)}")
-            st.warning("Verifique se seu Excel tem exatamente estes nomes no cabeçalho: **Produto, Vendas, Preço, Custo**")
-            st.stop() # Para o código aqui para não dar erro
+        # Dicionário de tradução: "Nome Novo" -> "Nome Padrão"
+        mapa_colunas = {
+            "Quantidade": "Vendas",
+            "Preco_Unitario": "Preço",
+            "Custo_Unitario": "Custo",
+            "Preco": "Preço" 
+        }
+        
+        # Renomeia as colunas automaticamente se encontrar os nomes novos
+        tabela = tabela.rename(columns=mapa_colunas)
+        
         # ---------------------------------------------------------
+        # VALIDAÇÃO
+        # ---------------------------------------------------------
+        colunas_necessarias = ["Vendas", "Preço", "Custo", "Produto"]
+        faltantes = [col for col in colunas_necessarias if col not in tabela.columns]
+        
+        if faltantes:
+            st.error(f"❌ O arquivo não tem as colunas padrão nem as novas compatíveis.")
+            st.warning(f"Colunas que faltam (ou estão com nome diferente): {', '.join(faltantes)}")
+            st.stop()
 
-        # Tratamento de erro se não tiver categoria
+        # Tratamento de categoria (Se não tiver, cria Geral)
         if "Categoria" not in tabela.columns:
             tabela["Categoria"] = "Geral"
-            st.warning("⚠️ Coluna 'Categoria' não encontrada. Usando 'Geral'.")
+            st.warning("⚠️ Classificando tudo como 'Geral' (coluna Categoria não encontrada).")
         
-        # Cálculos básicos
+        # Limpeza de dados na coluna Categoria
+        if tabela["Categoria"].dtype == 'object':
+            tabela["Categoria"] = tabela["Categoria"].str.strip()
+
+        # Cálculos
         tabela["Faturamento"] = tabela["Vendas"] * tabela["Preço"]
         tabela["Lucro"] = tabela["Faturamento"] - (tabela["Custo"] * tabela["Vendas"])
         
@@ -73,9 +105,16 @@ with aba1:
         
         st.divider()
         
-        # Assistente Virtual
+        # Assistente Virtual Inteligente (Agrupado por produto)
         st.subheader("🤖 Diagnóstico Automático")
-        for index, linha in tabela.iterrows():
+        
+        # Agrupa por produto para somar vendas repetidas
+        analise_produto = tabela.groupby(["Produto", "Categoria"]).agg({
+            "Faturamento": "sum",
+            "Lucro": "sum"
+        }).reset_index()
+
+        for index, linha in analise_produto.iterrows():
             produto = linha["Produto"]
             categoria = linha["Categoria"]
             lucro = linha["Lucro"]
@@ -85,121 +124,100 @@ with aba1:
             if faturamento > 0:
                 margem_real = lucro / faturamento
                 if lucro < 0:
-                    st.error(f"🔴 **{produto}**: Prejuízo de R$ {lucro:.2f}!")
+                    st.error(f"🔴 **{produto}**: Prejuízo acumulado de R$ {lucro:.2f}!")
                 elif margem_real < meta:
-                    st.warning(f"⚠️ **{produto}**: Margem de {margem_real:.1%} (Abaixo da meta de {meta:.0%})")
+                    st.warning(f"⚠️ **{produto}**: Margem de {margem_real:.1%} (Meta: {meta:.0%})")
                 else:
                     st.success(f"✅ **{produto}**: Margem Saudável de {margem_real:.1%}")
 
         # Visualização Gráfica
         st.subheader("Performance Visual")
         fig, ax = plt.subplots(figsize=(10, 4))
-        cores = ['red' if l < 0 else 'green' for l in tabela['Lucro']]
-        sns.barplot(data=tabela, x="Produto", y="Lucro", palette=cores, ax=ax)
+        
+        # Agrupa dados para o gráfico ficar limpo (soma vendas do mesmo produto)
+        grafico_dados = tabela.groupby("Produto")[["Lucro"]].sum().reset_index()
+        
+        cores = ['red' if l < 0 else 'green' for l in grafico_dados['Lucro']]
+        sns.barplot(data=grafico_dados, x="Produto", y="Lucro", palette=cores, ax=ax)
         plt.xticks(rotation=45)
         st.pyplot(fig)
     else:
-        st.info("Aguardando upload do arquivo Excel na barra lateral...")
+        st.info("Aguardando upload do arquivo (Excel ou CSV)...")
 
 # ==============================================================================
-# ABA 2: O SIMULADOR ESTRATÉGICO
+# ABA 2: SIMULADOR ESTRATÉGICO
 # ==============================================================================
 with aba2:
     st.header("Ferramentas de Decisão Financeira")
-    st.write("Simule cenários e descubra a verdade sobre seus números.")
-    
     col_esq, col_dir = st.columns(2)
 
-    # --- FERRAMENTA 1: MARKUP vs MARGEM REAL ---
+    # --- MARKUP vs MARGEM ---
     with col_esq:
-        st.subheader("🔍 A Ilusão do Lucro (Markup vs Margem)")
-        st.caption("Você acha que ganha X, mas na verdade ganha Y.")
-        
+        st.subheader("🔍 Markup vs Margem Real")
         custo_produto = st.number_input("Custo de Compra (R$)", value=50.0)
         markup_aplicado = st.number_input("Quanto você adiciona em cima? (%)", value=30.0)
         imposto = st.number_input("Impostos sobre venda (%)", value=5.0)
         
-        # Cálculos
         preco_venda = custo_produto * (1 + markup_aplicado/100)
         valor_imposto = preco_venda * (imposto/100)
         lucro_liquido = preco_venda - valor_imposto - custo_produto
         margem_real = (lucro_liquido / preco_venda) * 100
         
         st.divider()
-        st.write(f"🏷️ Preço Final de Venda: **R$ {preco_venda:.2f}**")
+        st.write(f"🏷️ Preço Final: **R$ {preco_venda:.2f}**")
         
-        # Comparativo Visual
         col_a, col_b = st.columns(2)
-        col_a.metric(label="O que você ACHOU que ganharia", value=f"{markup_aplicado}%")
-        col_b.metric(label="Sua Margem REAL (No bolso)", value=f"{margem_real:.1f}%", delta=f"{margem_real - markup_aplicado:.1f}%")
+        col_a.metric("Você ACHOU que ganharia", f"{markup_aplicado}%")
+        col_b.metric("Margem REAL (No bolso)", f"{margem_real:.1f}%", delta=f"{margem_real - markup_aplicado:.1f}%")
         
         if margem_real < 10:
-            st.error("🚨 Cuidado! Sua margem real está perigosamente baixa.")
+            st.error("🚨 Margem perigosamente baixa!")
         else:
-            st.info(f"De cada R$ 100,00 vendidos, sobram R$ {margem_real:.2f} limpos.")
+            st.info(f"Sobra R$ {lucro_liquido:.2f} limpos por venda.")
 
-    # --- FERRAMENTA 2: PONTO DE EQUILÍBRIO ---
+    # --- PONTO DE EQUILÍBRIO ---
     with col_dir:
         st.subheader("⚖️ Ponto de Equilíbrio")
-        st.caption("Quantas unidades vender só para pagar as contas?")
+        custo_fixo = st.number_input("Custo Fixo Mensal (Aluguel, Luz...)", value=5000.0)
         
-        custo_fixo = st.number_input("Custo Fixo Mensal (Aluguel, Luz, Salários)", value=5000.0)
-        
-        st.write("--- Dados do Produto ---")
-        preco_unitario = st.number_input("Preço Médio de Venda (R$)", value=preco_venda, disabled=True)
-        custo_variavel = st.number_input("Custo Variável Unitário (Produto + Imposto)", value=custo_produto + valor_imposto, disabled=True)
+        preco_unitario = st.number_input("Preço Médio (R$)", value=preco_venda, disabled=True)
+        custo_variavel = st.number_input("Custo Variável (Prod + Imposto)", value=custo_produto + valor_imposto, disabled=True)
         
         margem_contribuicao = preco_unitario - custo_variavel
         
         if margem_contribuicao <= 0:
-            st.error("Erro: Você perde dinheiro em cada venda! Aumente o preço.")
+            st.error("Preço insuficiente para pagar custos variáveis!")
         else:
             qtd_equilibrio = custo_fixo / margem_contribuicao
-            faturamento_equilibrio = qtd_equilibrio * preco_unitario
+            fat_equilibrio = qtd_equilibrio * preco_unitario
             
             st.divider()
-            st.metric("Meta Mínima de Vendas (Qtd)", f"{int(qtd_equilibrio)} unidades")
-            st.write(f"Isso gera um faturamento de **R$ {faturamento_equilibrio:,.2f}** apenas para pagar os R$ {custo_fixo:,.2f} de custo fixo.")
+            st.metric("Vendas Necessárias (Qtd)", f"{int(qtd_equilibrio)} un")
+            st.caption(f"Faturamento necessário: R$ {fat_equilibrio:,.2f}")
             
             progresso = min(100, int((margem_contribuicao/preco_unitario)*100))
             st.progress(progresso)
-            st.caption(f"Cada produto contribui com R$ {margem_contribuicao:.2f} para pagar o aluguel.")
+            st.caption(f"Margem de Contribuição: R$ {margem_contribuicao:.2f} por item")
 
 # ==============================================================================
-# RODAPÉ / ASSINATURA (LOGO MP) - ADICIONADO AQUI
+# RODAPÉ COM SUA ASSINATURA MP
 # ==============================================================================
 with st.sidebar:
     st.markdown("---")
-    
-    # Logo estilizado em CSS
     st.markdown("""
         <style>
         .logo-container {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background-color: #0E1117;
-            border: 2px solid #4B4B4B;
-            border-radius: 12px;
-            width: 80px;
-            height: 80px;
-            margin: auto;
-            margin-bottom: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            display: flex; justify-content: center; align-items: center;
+            background-color: #0E1117; border: 2px solid #4B4B4B;
+            border-radius: 12px; width: 80px; height: 80px; margin: auto;
+            margin-bottom: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
         }
         .logo-text {
-            font-family: 'Helvetica', sans-serif;
-            font-weight: bold;
-            font-size: 35px;
-            color: #FFFFFF;
-            margin: 0;
-            line-height: 1;
+            font-family: 'Helvetica', sans-serif; font-weight: bold;
+            font-size: 35px; color: #FFFFFF; margin: 0; line-height: 1;
         }
         </style>
-        
-        <div class="logo-container">
-            <p class="logo-text">MP</p>
-        </div>
+        <div class="logo-container"><p class="logo-text">MP</p></div>
     """, unsafe_allow_html=True)
     
     st.markdown("<div style='text-align: center'>", unsafe_allow_html=True)
