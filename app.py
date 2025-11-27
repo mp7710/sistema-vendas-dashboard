@@ -162,3 +162,14 @@ with aba2:
             st.success(f"Você precisa vender **{qtd_equilibrio} unidades** para sair do zero a zero.")
         else:
             st.error("Preço muito baixo! Você nunca pagará os custos fixos assim.")
+            # --- RODAPÉ / ASSINATURA ---
+with st.sidebar:
+    st.markdown("---")
+    
+    # 1. LOGO COM SUAS INICIAIS (Gerado automaticamente)
+    # background=000000 (Preto) e color=ffffff (Branco)
+    st.image("https://ui-avatars.com/api/?name=Maurilio+Pereira&background=000000&color=ffffff&size=128", width=100)
+    
+    st.markdown("Desenvolvido por:")
+    st.markdown("**Maurílio Pereira Santana Oliveira Nunes**")
+    st.caption("📧 mauriliopnunes77@gmail.com")
