@@ -41,6 +41,21 @@ with aba1:
     if arquivo_upload is not None:
         tabela = pd.read_excel(arquivo_upload)
         
+        # ---------------------------------------------------------
+        # BLOCO DE SEGURANÇA (CORREÇÃO DO ERRO KEYERROR)
+        # ---------------------------------------------------------
+        # Remove espaços extras nos nomes das colunas (ex: "Vendas " vira "Vendas")
+        tabela.columns = tabela.columns.str.strip()
+        
+        colunas_obrigatorias = ["Vendas", "Preço", "Custo", "Produto"]
+        colunas_faltantes = [col for col in colunas_obrigatorias if col not in tabela.columns]
+
+        if colunas_faltantes:
+            st.error(f"❌ **Erro no Arquivo:** Faltam as colunas: {', '.join(colunas_faltantes)}")
+            st.warning("Verifique se seu Excel tem exatamente estes nomes no cabeçalho: **Produto, Vendas, Preço, Custo**")
+            st.stop() # Para o código aqui para não dar erro
+        # ---------------------------------------------------------
+
         # Tratamento de erro se não tiver categoria
         if "Categoria" not in tabela.columns:
             tabela["Categoria"] = "Geral"
