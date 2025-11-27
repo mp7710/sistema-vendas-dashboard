@@ -1,152 +1,164 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+import plotly.express as px
+import plotly.graph_objects as go
 
-# Configuração da página
-st.set_page_config(page_title="Consultor Inteligente de Vendas", layout="wide")
-sns.set_style("whitegrid")
+# Configuração da página (Wide mode para usar a tela toda)
+st.set_page_config(page_title="Consultor Pro", layout="wide", page_icon="🚀")
 
-# Título Principal
-st.title("💼 Consultor Inteligente de Negócios")
-st.write("Analise seus dados passados e simule o futuro do seu negócio.")
+# CSS para deixar o visual mais limpo (remove margens excessivas)
+st.markdown("""
+<style>
+    .block-container {padding-top: 1rem; padding-bottom: 0rem;}
+</style>
+""", unsafe_allow_html=True)
 
-# Criação de Abas para separar "Análise de Arquivo" das "Simulações"
-aba1, aba2 = st.tabs(["📊 Dashboard de Vendas (Excel)", "🧠 Simulador Estratégico (Calculadora)"])
+# Título
+st.title("🚀 Consultor de Negócios 2.0")
+st.markdown("---")
+
+# Abas
+aba1, aba2 = st.tabs(["📊 Dashboard Interativo", "🧠 Simulador de Lucro"])
 
 # ==============================================================================
-# ABA 1: O DASHBOARD DE VENDAS (Seu código original melhorado)
+# ABA 1: DASHBOARD VISUAL
 # ==============================================================================
 with aba1:
-    st.header("Análise de Dados Históricos")
-    
-    # Barra lateral de metas (agora específica para esta aba)
-    with st.expander("⚙️ Configurar Metas de Lucro para o Gráfico"):
-        meta_eletronicos = st.slider("Meta Eletrônicos (%)", 10, 50, 10) / 100
-        meta_moda = st.slider("Meta Moda (%)", 20, 80, 50) / 100
-        meta_servicos = st.slider("Meta Serviços (%)", 50, 100, 80) / 100
-        meta_geral = st.slider("Meta Geral (%)", 10, 50, 20) / 100
-
-    metas_por_categoria = {
-        "Eletronicos": meta_eletronicos,
-        "Moda": meta_moda,
-        "Servicos": meta_servicos,
-        "Geral": meta_geral
-    }
-
-    arquivo_upload = st.file_uploader("Arraste seu relatorio_vendas.xlsx aqui", type=["xlsx"])
+    # --- BARRA LATERAL (FILTROS) ---
+    with st.sidebar:
+        st.header("🎛️ Filtros & Upload")
+        arquivo_upload = st.file_uploader("📂 Carregar Planilha", type=["xlsx"])
+        st.write("---")
+        st.write("Configuração de Metas:")
+        meta_geral = st.slider("Meta de Margem Geral (%)", 0, 100, 20) / 100
 
     if arquivo_upload is not None:
         tabela = pd.read_excel(arquivo_upload)
         
-        # Tratamento de erro se não tiver categoria
+        # Tratamento básico
         if "Categoria" not in tabela.columns:
             tabela["Categoria"] = "Geral"
-            st.warning("⚠️ Coluna 'Categoria' não encontrada. Usando 'Geral'.")
         
-        # Cálculos básicos
         tabela["Faturamento"] = tabela["Vendas"] * tabela["Preço"]
         tabela["Lucro"] = tabela["Faturamento"] - (tabela["Custo"] * tabela["Vendas"])
+        tabela["Margem"] = (tabela["Lucro"] / tabela["Faturamento"]) * 100
         
-        # Métricas
-        col1, col2, col3 = st.columns(3)
+        # --- LINHA 1: CARTÕES DE MÉTRICAS (KPIs) ---
+        col1, col2, col3, col4 = st.columns(4)
         col1.metric("Faturamento Total", f"R$ {tabela['Faturamento'].sum():,.2f}")
         col2.metric("Lucro Total", f"R$ {tabela['Lucro'].sum():,.2f}")
-        col3.metric("Total Vendido (Qtd)", int(tabela['Vendas'].sum()))
         
-        st.divider()
+        # Margem Média com cor dinâmica
+        margem_media = tabela["Margem"].mean()
+        col3.metric("Margem Média", f"{margem_media:.1f}%", delta=f"{margem_media - (meta_geral*100):.1f}%")
+        col4.metric("Total Vendas", int(tabela['Vendas'].sum()))
         
-        # Assistente Virtual
-        st.subheader("🤖 Diagnóstico Automático")
-        for index, linha in tabela.iterrows():
-            produto = linha["Produto"]
-            categoria = linha["Categoria"]
-            lucro = linha["Lucro"]
-            faturamento = linha["Faturamento"]
-            meta = metas_por_categoria.get(categoria, meta_geral)
-            
-            if faturamento > 0:
-                margem_real = lucro / faturamento
-                if lucro < 0:
-                    st.error(f"🔴 **{produto}**: Prejuízo de R$ {lucro:.2f}!")
-                elif margem_real < meta:
-                    st.warning(f"⚠️ **{produto}**: Margem de {margem_real:.1%} (Abaixo da meta de {meta:.0%})")
-                else:
-                    st.success(f"✅ **{produto}**: Margem Saudável de {margem_real:.1%}")
+        st.markdown("---")
 
-        # Visualização Gráfica
-        st.subheader("Performance Visual")
-        fig, ax = plt.subplots(figsize=(10, 4))
-        cores = ['red' if l < 0 else 'green' for l in tabela['Lucro']]
-        sns.barplot(data=tabela, x="Produto", y="Lucro", palette=cores, ax=ax)
-        plt.xticks(rotation=45)
-        st.pyplot(fig)
+        # --- LINHA 2: GRÁFICOS INTERATIVOS ---
+        col_g1, col_g2 = st.columns([2, 1]) # Coluna esquerda mais larga
+
+        with col_g1:
+            st.subheader("💰 Lucro por Produto")
+            # Gráfico de Barras Interativo
+            fig_bar = px.bar(tabela, x="Produto", y="Lucro", color="Lucro",
+                             color_continuous_scale=["red", "yellow", "green"],
+                             text_auto='.2s', title="Quem está dando dinheiro?")
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+        with col_g2:
+            st.subheader("🍕 Faturamento por Categoria")
+            # Gráfico de Rosca (Donut Chart)
+            fig_pie = px.pie(tabela, values="Faturamento", names="Categoria", hole=0.4)
+            st.plotly_chart(fig_pie, use_container_width=True)
+
+        # --- LINHA 3: TABELA INTELIGENTE ---
+        st.subheader("📋 Detalhes dos Produtos")
+        # Dataframe com formatação visual
+        st.dataframe(
+            tabela[["Produto", "Categoria", "Vendas", "Faturamento", "Lucro", "Margem"]],
+            column_config={
+                "Faturamento": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Lucro": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Margem": st.column_config.ProgressColumn(
+                    "Margem Real", format="%.1f%%", min_value=-10, max_value=100
+                ),
+            },
+            use_container_width=True,
+            hide_index=True
+        )
+
     else:
-        st.info("Aguardando upload do arquivo Excel...")
+        st.info("👈 Faça o upload da planilha na barra lateral para começar.")
 
 # ==============================================================================
-# ABA 2: O SIMULADOR ESTRATÉGICO (O pedido dos áudios!)
+# ABA 2: SIMULADOR VISUAL (VELOCÍMETRO E GRÁFICO DE PONTO DE EQUILÍBRIO)
 # ==============================================================================
 with aba2:
-    st.header("Ferramentas de Decisão Financeira")
-    st.write("Simule cenários e descubra a verdade sobre seus números.")
-    
-    col_esq, col_dir = st.columns(2)
+    col_sim1, col_sim2 = st.columns(2)
 
-    # --- FERRAMENTA 1: MARKUP vs MARGEM REAL (O "Choque de Realidade") ---
-    with col_esq:
-        st.subheader("🔍 A Ilusão do Lucro (Markup vs Margem)")
-        st.caption("Você acha que ganha X, mas na verdade ganha Y.")
+    # --- SIMULADOR 1: VELOCÍMETRO DE MARGEM ---
+    with col_sim1:
+        st.header("🔍 Calculadora de Realidade")
+        custo = st.number_input("Custo do Produto (R$)", value=50.0)
+        markup = st.number_input("Markup Aplicado (%)", value=30.0)
+        imposto = st.number_input("Imposto (%)", value=10.0)
         
-        custo_produto = st.number_input("Custo de Compra (R$)", value=50.0)
-        markup_aplicado = st.number_input("Quanto você adiciona em cima? (%)", value=30.0)
-        imposto = st.number_input("Impostos sobre venda (%)", value=5.0)
+        preco = custo * (1 + markup/100)
+        lucro_liq = preco - (preco * imposto/100) - custo
+        margem_real = (lucro_liq / preco) * 100
         
-        # Cálculos
-        preco_venda = custo_produto * (1 + markup_aplicado/100)
-        valor_imposto = preco_venda * (imposto/100)
-        lucro_liquido = preco_venda - valor_imposto - custo_produto
-        margem_real = (lucro_liquido / preco_venda) * 100
+        st.write(f"Preço de Venda: **R$ {preco:.2f}**")
         
-        st.divider()
-        st.write(f"🏷️ Preço Final de Venda: **R$ {preco_venda:.2f}**")
+        # Gráfico de Velocímetro (Gauge Chart)
+        fig_gauge = go.Figure(go.Indicator(
+            mode = "gauge+number+delta",
+            value = margem_real,
+            domain = {'x': [0, 1], 'y': [0, 1]},
+            title = {'text': "Sua Margem Real"},
+            delta = {'reference': markup, 'increasing': {'color': "green"}},
+            gauge = {
+                'axis': {'range': [-10, 50]},
+                'bar': {'color': "darkblue"},
+                'steps': [
+                    {'range': [-10, 0], 'color': "red"},
+                    {'range': [0, 10], 'color': "orange"},
+                    {'range': [10, 50], 'color': "lightgreen"}],
+                'threshold': {
+                    'line': {'color': "red", 'width': 4},
+                    'thickness': 0.75,
+                    'value': 0}}))
         
-        # Comparativo Visual
-        col_a, col_b = st.columns(2)
-        col_a.metric(label="O que você ACHOU que ganharia", value=f"{markup_aplicado}%")
-        col_b.metric(label="Sua Margem REAL (No bolso)", value=f"{margem_real:.1f}%", delta=f"{margem_real - markup_aplicado:.1f}%")
-        
+        st.plotly_chart(fig_gauge, use_container_width=True)
         if margem_real < 10:
-            st.error("🚨 Cuidado! Sua margem real está perigosamente baixa.")
-        else:
-            st.info(f"De cada R$ 100,00 vendidos, sobram R$ {margem_real:.2f} limpos.")
+            st.error(f"Perigo! Você acha que ganha {markup}%, mas ganha só {margem_real:.1f}%!")
 
-    # --- FERRAMENTA 2: PONTO DE EQUILÍBRIO (Break-even) ---
-    with col_dir:
-        st.subheader("⚖️ Ponto de Equilíbrio")
-        st.caption("Quantas unidades vender só para pagar as contas?")
+    # --- SIMULADOR 2: PONTO DE EQUILÍBRIO VISUAL ---
+    with col_sim2:
+        st.header("⚖️ Ponto de Equilíbrio")
+        custo_fixo = st.number_input("Custo Fixo (Aluguel, etc)", value=5000.0)
         
-        custo_fixo = st.number_input("Custo Fixo Mensal (Aluguel, Luz, Salários)", value=5000.0)
+        margem_contribuicao = preco - (custo + (preco * imposto/100))
         
-        # Usando os dados da simulação ao lado ou novos
-        st.write("--- Dados do Produto ---")
-        preco_unitario = st.number_input("Preço Médio de Venda (R$)", value=preco_venda, disabled=True)
-        custo_variavel = st.number_input("Custo Variável Unitário (Produto + Imposto)", value=custo_produto + valor_imposto, disabled=True)
-        
-        # Cálculo
-        margem_contribuicao = preco_unitario - custo_variavel
-        
-        if margem_contribuicao <= 0:
-            st.error("Erro: Você perde dinheiro em cada venda! Aumente o preço.")
+        if margem_contribuicao > 0:
+            qtd_equilibrio = int(custo_fixo / margem_contribuicao)
+            
+            # Criando dados para o gráfico de linhas
+            x_vals = list(range(0, int(qtd_equilibrio * 1.5), 10)) # Eixo X: Quantidade
+            y_custos = [custo_fixo + (custo + (preco * imposto/100))*x for x in x_vals]
+            y_receitas = [preco * x for x in x_vals]
+            
+            # Gráfico de Linhas (Break-even)
+            fig_break = go.Figure()
+            fig_break.add_trace(go.Scatter(x=x_vals, y=y_receitas, name='Receita (Entrada)', line=dict(color='green')))
+            fig_break.add_trace(go.Scatter(x=x_vals, y=y_custos, name='Custos Totais', line=dict(color='red')))
+            
+            # Marca o ponto de cruzamento
+            fig_break.add_vline(x=qtd_equilibrio, line_width=1, line_dash="dash", line_color="white")
+            fig_break.update_layout(title="Onde suas contas se pagam", xaxis_title="Quantidade Vendida", yaxis_title="Dinheiro (R$)")
+            
+            st.plotly_chart(fig_break, use_container_width=True)
+            
+            st.success(f"Você precisa vender **{qtd_equilibrio} unidades** para sair do zero a zero.")
         else:
-            qtd_equilibrio = custo_fixo / margem_contribuicao
-            faturamento_equilibrio = qtd_equilibrio * preco_unitario
-            
-            st.divider()
-            st.metric("Meta Mínima de Vendas (Qtd)", f"{int(qtd_equilibrio)} unidades")
-            st.write(f"Isso gera um faturamento de **R$ {faturamento_equilibrio:,.2f}** apenas para pagar os R$ {custo_fixo:,.2f} de custo fixo.")
-            
-            # Barrinha visual
-            progresso = min(100, int((margem_contribuicao/preco_unitario)*100))
-            st.progress(progresso)
-            st.caption(f"Cada produto contribui com R$ {margem_contribuicao:.2f} para pagar o aluguel.")
+            st.error("Preço muito baixo! Você nunca pagará os custos fixos assim.")
