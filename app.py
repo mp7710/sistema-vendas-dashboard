@@ -135,10 +135,8 @@ with aba1:
         with st.expander(f"🔎 Clique para ver o detalhe das {int(vendas_total)} unidades vendidas"):
             st.write("Resumo de quantidade vendida por produto:")
             
-            # Cria uma tabela resumida só com Produto e Quantidade
             resumo_qtd = tabela_filtrada.groupby("Produto")[["Vendas"]].sum(numeric_only=True).sort_values("Vendas", ascending=False).reset_index()
             
-            # Mostra como tabela visual
             st.dataframe(
                 resumo_qtd,
                 column_config={
@@ -159,14 +157,12 @@ with aba1:
         g_col1, g_col2 = st.columns([2, 1])
         
         with g_col1:
-            # Seletor para mudar o gráfico
             tipo_analise = st.radio(
                 "O que você quer analisar no gráfico?",
                 ["Lucro (R$)", "Quantidade Vendida (Un)", "Faturamento (R$)"],
                 horizontal=True
             )
             
-            # Define qual coluna usar baseada na escolha
             coluna_y = "Lucro"
             cor_grafico = "Lucro"
             titulo_grafico = "Ranking de Lucratividade"
@@ -182,7 +178,6 @@ with aba1:
                 cor_grafico = "Faturamento"
                 titulo_grafico = "Produtos com Maior Receita"
 
-            # Agrupa dados (numeric_only=True para ignorar datas)
             dados_grafico = tabela_filtrada.groupby("Produto").sum(numeric_only=True).reset_index()
             
             fig_bar = px.bar(
@@ -272,26 +267,62 @@ with aba2:
     with sim_col2:
         with st.container(border=True):
             st.subheader("2. Ponto de Equilíbrio (Break-even)")
-            custo_fixo = st.number_input("Custo Fixo Mensal (R$)", 0.0, 100000.0, 5000.0)
+            
+            detalhar_custos = st.checkbox("Detalhar Custos Fixos?", value=False)
+            
+            if detalhar_custos:
+                c1, c2 = st.columns(2)
+                with c1:
+                    aluguel = st.number_input("Aluguel", 0.0, value=2000.0)
+                    pessoal = st.number_input("Salários/Equipe", 0.0, value=2500.0)
+                with c2:
+                    servicos = st.number_input("Serviços (Luz/Net)", 0.0, value=300.0)
+                    outros = st.number_input("Outros Custos", 0.0, value=200.0)
+                
+                custo_fixo = aluguel + pessoal + servicos + outros
+                st.info(f"💰 Custo Fixo Total: **R$ {custo_fixo:,.2f}**")
+            else:
+                custo_fixo = st.number_input("Custo Fixo Mensal (R$)", 0.0, 100000.0, 5000.0)
             
             mc = preco_venda - (custo + val_imposto)
             
             if mc > 0:
                 qtd_eq = custo_fixo / mc
+                receita_eq = qtd_eq * preco_venda
                 
                 x = list(range(0, int(qtd_eq * 1.8), 5))
                 y_rec = [xi * preco_venda for xi in x]
                 y_cus = [custo_fixo + (custo + val_imposto) * xi for xi in x]
+                y_fixo = [custo_fixo for xi in x] # Linha do custo fixo
                 
                 fig_be = go.Figure()
+                # Linha de Receita
                 fig_be.add_trace(go.Scatter(x=x, y=y_rec, name="Receita", line=dict(color="#10b981", width=3)))
-                fig_be.add_trace(go.Scatter(x=x, y=y_cus, name="Custos", line=dict(color="#ef4444", width=3)))
+                # Linha de Custo Total
+                fig_be.add_trace(go.Scatter(x=x, y=y_cus, name="Custo Total", line=dict(color="#ef4444", width=3)))
+                # Linha de Custo Fixo (NOVA)
+                fig_be.add_trace(go.Scatter(x=x, y=y_fixo, name="Custo Fixo", line=dict(color="#94a3b8", width=2, dash="dash")))
+                
                 fig_be.add_vline(x=qtd_eq, line_dash="dot", annotation_text="Break-even")
                 
                 fig_be.update_layout(height=300, margin=dict(l=0, r=0, t=30, b=0), showlegend=True)
                 st.plotly_chart(fig_be, use_container_width=True)
                 
                 st.success(f"Venda **{int(qtd_eq)} unidades** para pagar as contas.")
+                
+                # DETALHAMENTO DOS CUSTOS NO PONTO DE EQUILÍBRIO
+                custo_var_total_be = (custo + val_imposto) * qtd_eq
+                
+                with st.expander("📊 Ver detalhe do Zero a Zero"):
+                    st.markdown(f"""
+                    Para atingir o equilíbrio (Receita de **R$ {receita_eq:,.2f}**):
+                    
+                    | Para onde vai o dinheiro? | Valor |
+                    | :--- | :--- |
+                    | 🏢 **Pagar Custo Fixo** | R$ {custo_fixo:,.2f} |
+                    | 📦 **Pagar Custo Variável (Prod+Imp)** | R$ {custo_var_total_be:,.2f} |
+                    | 💰 **Lucro** | R$ 0,00 |
+                    """)
             else:
                 st.error("Preço insuficiente para cobrir custos variáveis!")
 
@@ -303,4 +334,3 @@ with st.sidebar:
     st.markdown("**Desenvolvido por:**")
     st.markdown("Maurílio Pereira Santana Oliveira Nunes")
     st.caption("📧 mauriliopnunes77@gmail.com")
-
