@@ -40,7 +40,8 @@ with st.sidebar:
     
     st.markdown("---")
     st.write("🎯 **Metas de Margem**")
-    meta_geral = st.slider("Meta Global (%)", 0, 100, 20) / 100
+    # Multiplicamos por 100 no visual, mas usamos decimal no código
+    meta_geral = st.slider("Meta Global de Margem (%)", 0, 100, 20) 
 
 # ==============================================================================
 # 3. CORPO PRINCIPAL
@@ -75,10 +76,12 @@ if arquivo_upload is not None:
         if "Categoria" not in tabela.columns:
             tabela["Categoria"] = "Geral"
             
-        # CÁLCULOS FINANCEIROS
+        # CÁLCULOS FINANCEIROS (LINHA A LINHA)
         tabela["Faturamento"] = tabela["Vendas"] * tabela["Preço"]
         tabela["Lucro"] = tabela["Faturamento"] - (tabela["Custo"] * tabela["Vendas"])
-        tabela["Margem_Perc"] = (tabela["Lucro"] / tabela["Faturamento"]) * 100
+        
+        # Evita divisão por zero
+        tabela["Margem_Perc"] = tabela.apply(lambda x: (x["Lucro"] / x["Faturamento"] * 100) if x["Faturamento"] > 0 else 0, axis=1)
         
         # --- FILTRO DE DATA AUTOMÁTICO ---
         col_data_encontrada = [col for col in tabela.columns if 'Data' in col or 'date' in col.lower()]
@@ -127,65 +130,91 @@ with aba1:
         
         kpi1.metric("💰 Faturamento", f"R$ {fat_total:,.2f}")
         kpi2.metric("💸 Lucro Líquido", f"R$ {lucro_total:,.2f}", delta_color="normal")
-        kpi3.metric("📦 Vendas Totais", f"{int(vendas_total)} unidades")
+        kpi3.metric("📦 Vendas Totais", f"{int(vendas_total)} un")
         kpi4.metric("📈 Margem Média", f"{margem_media:.1f}%", 
-                   delta=f"{margem_media - (meta_geral*100):.1f}% vs Meta")
-        
-        # --- NOVIDADE: DETALHAMENTO DE VENDAS (EXPANDER) ---
-        with st.expander(f"🔎 Clique para ver o detalhe das {int(vendas_total)} unidades vendidas"):
-            st.write("Resumo de quantidade vendida por produto:")
-            
-            resumo_qtd = tabela_filtrada.groupby("Produto")[["Vendas"]].sum(numeric_only=True).sort_values("Vendas", ascending=False).reset_index()
-            
-            st.dataframe(
-                resumo_qtd,
-                column_config={
-                    "Vendas": st.column_config.ProgressColumn(
-                        "Quantidade", 
-                        format="%d un", 
-                        min_value=0, 
-                        max_value=int(resumo_qtd["Vendas"].max())
-                    )
-                },
-                use_container_width=True,
-                hide_index=True
-            )
+                   delta=f"{margem_media - meta_geral:.1f}% vs Meta")
         
         st.divider()
+
+        # ==============================================================================
+        # NOVA SEÇÃO: AUDITORIA DE PREÇOS E MARGENS
+        # ==============================================================================
+        st.subheader("🔎 Auditoria de Precificação & Estratégia")
+        st.caption(f"Analisando todos os produtos com base na Meta Global de **{meta_geral}%** de margem.")
         
-        # --- LINHA 2: GRÁFICOS AVANÇADOS ---
+        # Prepara dados agregados por produto (para não repetir linhas de vendas diferentes do mesmo item)
+        dados_produto = tabela_filtrada.groupby("Produto").agg({
+            "Preço": "mean",           # Preço médio
+            "Margem_Perc": "mean",     # Margem média
+            "Vendas": "sum",           # Total vendido
+            "Faturamento": "sum",
+            "Categoria": "first"       # Pega a categoria
+        }).reset_index()
+
+        col_audit1, col_audit2 = st.columns([2, 1])
+
+        with col_audit1:
+            st.markdown("#### Matriz de Estratégia: Preço vs Margem")
+            # Gráfico de Dispersão (Bolhas)
+            fig_scatter = px.scatter(
+                dados_produto,
+                x="Preço", 
+                y="Margem_Perc",
+                size="Vendas", 
+                color="Categoria",
+                hover_name="Produto",
+                size_max=40,
+                title="Onde estão seus produtos? (Tamanho da bolha = Volume de Vendas)"
+            )
+            # Adiciona linha da meta
+            fig_scatter.add_hline(y=meta_geral, line_dash="dash", line_color="red", annotation_text="Meta Global")
+            st.plotly_chart(fig_scatter, use_container_width=True)
+            st.info("💡 **Dica:** Produtos abaixo da linha vermelha estão com margem ruim. Bolhas grandes abaixo da linha são **prejuízo em escala**!")
+
+        with col_audit2:
+            st.markdown("#### 🚨 Radar de Alerta")
+            # Filtra produtos críticos
+            produtos_criticos = dados_produto[dados_produto["Margem_Perc"] < meta_geral].sort_values("Margem_Perc")
+            
+            qtd_criticos = len(produtos_criticos)
+            
+            if qtd_criticos > 0:
+                st.error(f"**{qtd_criticos} Produtos** estão abaixo da meta de {meta_geral}%!")
+                st.dataframe(
+                    produtos_criticos[["Produto", "Margem_Perc", "Preço"]],
+                    column_config={
+                        "Margem_Perc": st.column_config.ProgressColumn("Margem", format="%.1f%%", min_value=-10, max_value=100),
+                        "Preço": st.column_config.NumberColumn(format="R$ %.2f")
+                    },
+                    hide_index=True,
+                    use_container_width=True
+                )
+            else:
+                st.success("🎉 Parabéns! Todos os produtos estão acima da meta de margem.")
+
+        st.divider()
+        
+        # --- LINHA 2: GRÁFICOS GERAIS ---
         g_col1, g_col2 = st.columns([2, 1])
         
         with g_col1:
+            # Gráfico Flexível
             tipo_analise = st.radio(
-                "O que você quer analisar no gráfico?",
-                ["Lucro (R$)", "Quantidade Vendida (Un)", "Faturamento (R$)"],
+                "Visão Gráfica:",
+                ["Lucro (R$)", "Quantidade (Un)", "Faturamento (R$)"],
                 horizontal=True
             )
             
-            coluna_y = "Lucro"
-            cor_grafico = "Lucro"
-            titulo_grafico = "Ranking de Lucratividade"
-            formato_texto = "R$ .2s"
+            col_y, cor, tit, fmt = "Lucro", "Lucro", "Ranking de Lucratividade", "R$ .2s"
+            if "Quantidade" in tipo_analise: col_y, cor, tit, fmt = "Vendas", "Vendas", "Volume de Vendas", ".0f"
+            elif "Faturamento" in tipo_analise: col_y, cor, tit, fmt = "Faturamento", "Faturamento", "Curva ABC (Receita)", "R$ .2s"
 
-            if tipo_analise == "Quantidade Vendida (Un)":
-                coluna_y = "Vendas"
-                cor_grafico = "Vendas"
-                titulo_grafico = "Produtos Mais Vendidos (Volume)"
-                formato_texto = ".0f"
-            elif tipo_analise == "Faturamento (R$)":
-                coluna_y = "Faturamento"
-                cor_grafico = "Faturamento"
-                titulo_grafico = "Produtos com Maior Receita"
-
-            dados_grafico = tabela_filtrada.groupby("Produto").sum(numeric_only=True).reset_index()
-            
+            # Reutiliza dados agregados
             fig_bar = px.bar(
-                dados_grafico,
-                x="Produto", y=coluna_y, color=cor_grafico,
+                dados_produto.sort_values(col_y, ascending=False).head(20), # Top 20
+                x="Produto", y=col_y, color=cor,
                 color_continuous_scale=["#ef4444", "#fbbf24", "#22c55e"],
-                title=titulo_grafico,
-                text_auto=formato_texto
+                title=tit, text_auto=fmt
             )
             fig_bar.update_layout(xaxis_title=None, yaxis_title=None)
             st.plotly_chart(fig_bar, use_container_width=True)
@@ -200,26 +229,20 @@ with aba1:
             st.plotly_chart(fig_pie, use_container_width=True)
             
         # --- LINHA 3: TABELA COMPLETA ---
-        st.subheader("📋 Detalhamento de Transações")
-        
-        config_colunas = {
-            "Preço": st.column_config.NumberColumn(format="R$ %.2f"),
-            "Custo": st.column_config.NumberColumn(format="R$ %.2f"),
-            "Faturamento": st.column_config.NumberColumn(format="R$ %.2f"),
-            "Lucro": st.column_config.NumberColumn(format="R$ %.2f"),
-            "Vendas": st.column_config.NumberColumn("Qtd", format="%d"),
-            "Margem_Perc": st.column_config.ProgressColumn("Margem (%)", format="%.1f%%", min_value=-10, max_value=100)
-        }
-        
-        if nome_coluna_data:
-            config_colunas[nome_coluna_data] = st.column_config.DateColumn("Data da Venda", format="DD/MM/YYYY")
+        with st.expander("📋 Ver Tabela de Transações Completa", expanded=False):
+            config_colunas = {
+                "Preço": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Custo": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Faturamento": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Lucro": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Vendas": st.column_config.NumberColumn("Qtd", format="%d"),
+                "Margem_Perc": st.column_config.ProgressColumn("Margem (%)", format="%.1f%%", min_value=-10, max_value=100)
+            }
+            if nome_coluna_data:
+                config_colunas[nome_coluna_data] = st.column_config.DateColumn("Data", format="DD/MM/YYYY")
 
-        st.dataframe(
-            tabela_filtrada, 
-            column_config=config_colunas,
-            use_container_width=True,
-            hide_index=True
-        )
+            st.dataframe(tabela_filtrada, column_config=config_colunas, use_container_width=True, hide_index=True)
+
     else:
         st.info("👋 Olá! Carregue sua planilha (Excel ou CSV) na barra lateral para ativar o Dashboard.")
 
@@ -278,7 +301,6 @@ with aba2:
                 with c2:
                     servicos = st.number_input("Serviços (Luz/Net)", 0.0, value=300.0)
                     outros = st.number_input("Outros Custos", 0.0, value=200.0)
-                
                 custo_fixo = aluguel + pessoal + servicos + outros
                 st.info(f"💰 Custo Fixo Total: **R$ {custo_fixo:,.2f}**")
             else:
@@ -293,16 +315,12 @@ with aba2:
                 x = list(range(0, int(qtd_eq * 1.8), 5))
                 y_rec = [xi * preco_venda for xi in x]
                 y_cus = [custo_fixo + (custo + val_imposto) * xi for xi in x]
-                y_fixo = [custo_fixo for xi in x] # Linha do custo fixo
+                y_fixo = [custo_fixo for xi in x]
                 
                 fig_be = go.Figure()
-                # Linha de Receita
                 fig_be.add_trace(go.Scatter(x=x, y=y_rec, name="Receita", line=dict(color="#10b981", width=3)))
-                # Linha de Custo Total
                 fig_be.add_trace(go.Scatter(x=x, y=y_cus, name="Custo Total", line=dict(color="#ef4444", width=3)))
-                # Linha de Custo Fixo (NOVA)
                 fig_be.add_trace(go.Scatter(x=x, y=y_fixo, name="Custo Fixo", line=dict(color="#94a3b8", width=2, dash="dash")))
-                
                 fig_be.add_vline(x=qtd_eq, line_dash="dot", annotation_text="Break-even")
                 
                 fig_be.update_layout(height=300, margin=dict(l=0, r=0, t=30, b=0), showlegend=True)
@@ -310,17 +328,14 @@ with aba2:
                 
                 st.success(f"Venda **{int(qtd_eq)} unidades** para pagar as contas.")
                 
-                # DETALHAMENTO DOS CUSTOS NO PONTO DE EQUILÍBRIO
                 custo_var_total_be = (custo + val_imposto) * qtd_eq
-                
                 with st.expander("📊 Ver detalhe do Zero a Zero"):
                     st.markdown(f"""
                     Para atingir o equilíbrio (Receita de **R$ {receita_eq:,.2f}**):
-                    
                     | Para onde vai o dinheiro? | Valor |
                     | :--- | :--- |
                     | 🏢 **Pagar Custo Fixo** | R$ {custo_fixo:,.2f} |
-                    | 📦 **Pagar Custo Variável (Prod+Imp)** | R$ {custo_var_total_be:,.2f} |
+                    | 📦 **Pagar Custo Variável** | R$ {custo_var_total_be:,.2f} |
                     | 💰 **Lucro** | R$ 0,00 |
                     """)
             else:
@@ -334,3 +349,4 @@ with st.sidebar:
     st.markdown("**Desenvolvido por:**")
     st.markdown("Maurílio Pereira Santana Oliveira Nunes")
     st.caption("📧 mauriliopnunes77@gmail.com")
+
