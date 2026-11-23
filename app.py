@@ -1,3 +1,4 @@
+import numpy as np
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -50,6 +51,11 @@ st.markdown("Visão estratégica e simulação de cenários financeiros.")
 
 aba1, aba2 = st.tabs(["📊 Visão Geral (BI)", "🧠 Simulador de Precificação"])
 
+def reais(valor):
+    """1234.5 -> 'R$ 1.234,50' (formato brasileiro)."""
+    return "R$ " + f"{valor:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+
+
 # VARIÁVEIS GLOBAIS
 tabela_filtrada = None
 nome_coluna_data = None
@@ -57,56 +63,95 @@ nome_coluna_data = None
 if arquivo_upload is not None:
     # --- LEITURA E TRATAMENTO DOS DADOS ---
     try:
-        if arquivo_upload.name.endswith('.csv'):
-            try:
-                tabela = pd.read_csv(arquivo_upload)
-            except:
-                arquivo_upload.seek(0)
-                tabela = pd.read_csv(arquivo_upload, sep=';')
+        if arquivo_upload.name.lower().endswith('.csv'):
+            # Planilha brasileira costuma vir com ';' e vírgula decimal: o pandas detecta o separador.
+            tabela = pd.read_csv(arquivo_upload, sep=None, engine="python", encoding="utf-8-sig")
         else:
             tabela = pd.read_excel(arquivo_upload)
 
         # PADRONIZAÇÃO DE COLUNAS
-        tabela.columns = tabela.columns.str.strip()
+        tabela.columns = tabela.columns.astype(str).str.strip()
         mapa = {"Quantidade": "Vendas", "Preco_Unitario": "Preço", "Custo_Unitario": "Custo", "Preco": "Preço"}
         tabela = tabela.rename(columns=mapa)
+
+        # COLUNAS OBRIGATÓRIAS: mensagem clara em vez de um erro técnico
+        obrigatorias = ["Produto", "Vendas", "Preço", "Custo"]
+        faltando = [c for c in obrigatorias if c not in tabela.columns]
+        if faltando:
+            st.error(
+                f"A planilha precisa das colunas: {', '.join(obrigatorias)}. "
+                f"Faltando: **{', '.join(faltando)}**."
+            )
+            st.stop()
+
+        # Números com vírgula ("12,50", "R$ 1.234,56") viram número; o que não for número fica vazio
+        for coluna in ["Vendas", "Preço", "Custo"]:
+            if not pd.api.types.is_numeric_dtype(tabela[coluna]):
+                texto = tabela[coluna].astype(str).str.replace("R$", "", regex=False).str.strip()
+                tem_virgula = texto.str.contains(",", regex=False)
+                texto = texto.where(~tem_virgula, texto.str.replace(".", "", regex=False).str.replace(",", ".", regex=False))
+                tabela[coluna] = pd.to_numeric(texto, errors="coerce")
+        linhas_ruins = int(tabela[["Vendas", "Preço", "Custo"]].isna().any(axis=1).sum())
+        if linhas_ruins:
+            st.warning(f"{linhas_ruins} linha(s) com quantidade, preço ou custo inválido foram ignoradas.")
+            tabela = tabela.dropna(subset=["Vendas", "Preço", "Custo"])
 
         # CATEGORIA DEFAULT
         if "Categoria" not in tabela.columns:
             tabela["Categoria"] = "Geral"
+        tabela["Categoria"] = tabela["Categoria"].fillna("Geral")
 
         # CÁLCULOS FINANCEIROS
         tabela["Faturamento"] = tabela["Vendas"] * tabela["Preço"]
         tabela["Lucro"] = tabela["Faturamento"] - (tabela["Custo"] * tabela["Vendas"])
 
-        # Margem (evita divisão por zero)
-        tabela["Margem_Perc"] = tabela.apply(lambda x: (x["Lucro"] / x["Faturamento"] * 100) if x["Faturamento"] > 0 else 0, axis=1)
+        # Margem por linha (evita divisão por zero), sem apply linha a linha
+        positivo = tabela["Faturamento"] > 0
+        tabela["Margem_Perc"] = (tabela["Lucro"] / tabela["Faturamento"].where(positivo) * 100).fillna(0.0)
 
         # --- FILTRO DE DATA AUTOMÁTICO ---
-        col_data_encontrada = [col for col in tabela.columns if 'Data' in col or 'date' in col.lower()]
+        col_data_encontrada = [col for col in tabela.columns if 'data' in col.lower() or 'date' in col.lower()]
 
         if col_data_encontrada:
             nome_coluna_data = col_data_encontrada[0]
-            tabela[nome_coluna_data] = pd.to_datetime(tabela[nome_coluna_data])
+            coluna = tabela[nome_coluna_data]
+            if not pd.api.types.is_datetime64_any_dtype(coluna):
+                # Datas no formato brasileiro: 03/04/2026 é 3 de abril, não 4 de março
+                coluna = pd.to_datetime(coluna, dayfirst=True, errors="coerce")
+            tabela[nome_coluna_data] = coluna
+            sem_data = int(coluna.isna().sum())
+            if sem_data:
+                st.warning(f"{sem_data} linha(s) com data inválida ficaram fora do filtro de período.")
 
-            data_min = tabela[nome_coluna_data].min()
-            data_max = tabela[nome_coluna_data].max()
+            datas_validas = tabela[nome_coluna_data].dropna()
+            if datas_validas.empty:
+                nome_coluna_data = None
+                tabela_filtrada = tabela
+            else:
+                data_min = datas_validas.min().date()
+                data_max = datas_validas.max().date()
 
-            with st.sidebar:
-                st.markdown("---")
-                st.header("📅 Filtro de Período")
-                data_inicio, data_fim = st.date_input(
-                    "Selecione o intervalo",
-                    [data_min, data_max],
-                    min_value=data_min,
-                    max_value=data_max
-                )
+                with st.sidebar:
+                    st.markdown("---")
+                    st.header("📅 Filtro de Período")
+                    periodo = st.date_input(
+                        "Selecione o intervalo",
+                        (data_min, data_max),
+                        min_value=data_min,
+                        max_value=data_max,
+                        format="DD/MM/YYYY",
+                    )
 
-            tabela_filtrada = tabela[
-                (tabela[nome_coluna_data].dt.date >= data_inicio) &
-                (tabela[nome_coluna_data].dt.date <= data_fim)
-            ]
-            tabela_filtrada = tabela_filtrada.sort_values(by=nome_coluna_data, ascending=False)
+                # Enquanto a pessoa escolhe só a primeira data, o Streamlit devolve um valor só
+                if isinstance(periodo, (list, tuple)):
+                    data_inicio = periodo[0] if len(periodo) >= 1 else data_min
+                    data_fim = periodo[1] if len(periodo) >= 2 else data_inicio
+                else:
+                    data_inicio = data_fim = periodo
+
+                datas = tabela[nome_coluna_data].dt.date
+                tabela_filtrada = tabela[(datas >= data_inicio) & (datas <= data_fim)]
+                tabela_filtrada = tabela_filtrada.sort_values(by=nome_coluna_data, ascending=False)
         else:
             tabela_filtrada = tabela
 
@@ -125,12 +170,14 @@ with aba1:
         fat_total = tabela_filtrada["Faturamento"].sum()
         lucro_total = tabela_filtrada["Lucro"].sum()
         vendas_total = tabela_filtrada["Vendas"].sum()
-        margem_media = tabela_filtrada["Margem_Perc"].mean()
+        # Margem ponderada: lucro total sobre faturamento total (uma venda de R$ 1 não pesa
+        # igual a uma de R$ 10.000, como acontecia na média simples das linhas)
+        margem_media = (lucro_total / fat_total * 100) if fat_total > 0 else 0.0
 
-        kpi1.metric("💰 Faturamento", f"R$ {fat_total:,.2f}")
-        kpi2.metric("💸 Lucro Líquido", f"R$ {lucro_total:,.2f}", delta_color="normal")
-        kpi3.metric("📦 Vendas Totais", f"{int(vendas_total)} un")
-        kpi4.metric("📈 Margem Média", f"{margem_media:.1f}%",
+        kpi1.metric("💰 Faturamento", reais(fat_total))
+        kpi2.metric("💸 Lucro Líquido", reais(lucro_total), delta_color="normal")
+        kpi3.metric("📦 Vendas Totais", f"{vendas_total:,.0f} un".replace(",", "."))
+        kpi4.metric("📈 Margem Geral", f"{margem_media:.1f}%".replace(".", ","),
                    delta=f"{margem_media - (meta_geral*100):.1f}% vs Meta")
 
         st.divider()
@@ -142,12 +189,18 @@ with aba1:
         st.caption(f"Analisando todos os produtos com base na Meta Global de **{meta_geral*100:.0f}%** de margem.")
 
         # Agrupa dados para a auditoria
-        dados_auditoria = tabela_filtrada.groupby("Produto").agg({
-            "Preço": "mean",
-            "Margem_Perc": "mean",
-            "Vendas": "sum",
-            "Categoria": "first"
-        }).reset_index()
+        dados_auditoria = tabela_filtrada.groupby("Produto").agg(
+            Faturamento=("Faturamento", "sum"),
+            Lucro=("Lucro", "sum"),
+            Vendas=("Vendas", "sum"),
+            Categoria=("Categoria", "first"),
+        ).reset_index()
+        # Preço médio e margem ponderados pelo volume vendido
+        vendeu = dados_auditoria["Vendas"] > 0
+        faturou = dados_auditoria["Faturamento"] > 0
+        dados_auditoria["Preço"] = (dados_auditoria["Faturamento"] / dados_auditoria["Vendas"].where(vendeu)).fillna(0.0)
+        dados_auditoria["Margem_Perc"] = (dados_auditoria["Lucro"] / dados_auditoria["Faturamento"].where(faturou) * 100).fillna(0.0)
+        dados_auditoria["Tamanho"] = dados_auditoria["Vendas"].clip(lower=0)
 
         col_audit1, col_audit2 = st.columns([2, 1])
 
@@ -157,14 +210,14 @@ with aba1:
                 dados_auditoria,
                 x="Preço",
                 y="Margem_Perc",
-                size="Vendas",
+                size="Tamanho",
                 color="Categoria",
                 hover_name="Produto",
                 size_max=40,
                 title="Onde estão seus produtos? (Tamanho da bolha = Volume de Vendas)"
             )
             fig_scatter.add_hline(y=meta_geral*100, line_dash="dash", line_color="red", annotation_text="Meta Global")
-            st.plotly_chart(fig_scatter, use_container_width=True)
+            st.plotly_chart(fig_scatter, width="stretch")
             st.info("💡 **Dica:** Produtos abaixo da linha vermelha estão com margem ruim.")
 
         with col_audit2:
@@ -182,7 +235,7 @@ with aba1:
                         "Preço": st.column_config.NumberColumn(format="R$ %.2f")
                     },
                     hide_index=True,
-                    use_container_width=True
+                    width="stretch"
                 )
             else:
                 st.success("🎉 Parabéns! Todos os produtos estão acima da meta de margem.")
@@ -216,7 +269,7 @@ with aba1:
                 title=tit, text_auto=fmt
             )
             fig_bar.update_layout(xaxis_title=None, yaxis_title=None)
-            st.plotly_chart(fig_bar, use_container_width=True)
+            st.plotly_chart(fig_bar, width="stretch")
 
         with g_col2:
             st.subheader("Share por Categoria")
@@ -225,7 +278,7 @@ with aba1:
                 hole=0.5, color_discrete_sequence=px.colors.qualitative.Pastel
             )
             fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie, width="stretch")
 
         # --- LINHA 3: TABELA COMPLETA ---
         with st.expander("📋 Ver Tabela de Transações Completa", expanded=False):
@@ -240,7 +293,7 @@ with aba1:
             if nome_coluna_data:
                 config_colunas[nome_coluna_data] = st.column_config.DateColumn("Data", format="DD/MM/YYYY")
 
-            st.dataframe(tabela_filtrada, column_config=config_colunas, use_container_width=True, hide_index=True)
+            st.dataframe(tabela_filtrada, column_config=config_colunas, width="stretch", hide_index=True)
 
     else:
         st.info("👋 Olá! Carregue sua planilha (Excel ou CSV) na barra lateral para ativar o Dashboard.")
@@ -282,9 +335,9 @@ with aba2:
                 }
             ))
             fig_gauge.update_layout(height=250, margin=dict(l=20, r=20, t=30, b=20))
-            st.plotly_chart(fig_gauge, use_container_width=True)
+            st.plotly_chart(fig_gauge, width="stretch")
 
-            st.info(f"Preço Sugerido: **R$ {preco_venda:.2f}** | Lucro Líquido: **R$ {lucro_liq:.2f}**")
+            st.info(f"Preço Sugerido: **{reais(preco_venda)}** | Lucro Líquido: **{reais(lucro_liq)}**")
 
     with sim_col2:
         with st.container(border=True):
@@ -301,7 +354,7 @@ with aba2:
                     servicos = st.number_input("Serviços (Luz/Net)", 0.0, value=300.0)
                     outros = st.number_input("Outros Custos", 0.0, value=200.0)
                 custo_fixo = aluguel + pessoal + servicos + outros
-                st.info(f"💰 Custo Fixo Total: **R$ {custo_fixo:,.2f}**")
+                st.info(f"💰 Custo Fixo Total: **{reais(custo_fixo)}**")
             else:
                 custo_fixo = st.number_input("Custo Fixo Mensal (R$)", 0.0, 100000.0, 5000.0)
 
@@ -311,7 +364,10 @@ with aba2:
                 qtd_eq = custo_fixo / mc
                 receita_eq = qtd_eq * preco_venda
 
-                x = list(range(0, int(qtd_eq * 1.8), 5))
+                # Até ~200 pontos no gráfico, qualquer que seja o tamanho do ponto de equilíbrio
+                limite_x = max(qtd_eq * 1.8, 10)
+                passo = limite_x / 200
+                x = [i * passo for i in range(201)]
                 y_rec = [xi * preco_venda for xi in x]
                 y_cus = [custo_fixo + (custo + val_imposto) * xi for xi in x]
                 y_fixo = [custo_fixo for xi in x]
@@ -323,18 +379,18 @@ with aba2:
                 fig_be.add_vline(x=qtd_eq, line_dash="dot", annotation_text="Break-even")
 
                 fig_be.update_layout(height=300, margin=dict(l=0, r=0, t=30, b=0), showlegend=True)
-                st.plotly_chart(fig_be, use_container_width=True)
+                st.plotly_chart(fig_be, width="stretch")
 
-                st.success(f"Venda **{int(qtd_eq)} unidades** para pagar as contas.")
+                st.success(f"Venda **{int(np.ceil(qtd_eq))} unidades** para pagar as contas.")
 
                 custo_var_total_be = (custo + val_imposto) * qtd_eq
                 with st.expander("📊 Ver detalhe do Zero a Zero"):
                     st.markdown(f"""
-                    Para atingir o equilíbrio (Receita de **R$ {receita_eq:,.2f}**):
+                    Para atingir o equilíbrio (Receita de **{reais(receita_eq)}**):
                     | Para onde vai o dinheiro? | Valor |
                     | :--- | :--- |
-                    | 🏢 **Pagar Custo Fixo** | R$ {custo_fixo:,.2f} |
-                    | 📦 **Pagar Custo Variável** | R$ {custo_var_total_be:,.2f} |
+                    | 🏢 **Pagar Custo Fixo** | {reais(custo_fixo)} |
+                    | 📦 **Pagar Custo Variável** | {reais(custo_var_total_be)} |
                     | 💰 **Lucro** | R$ 0,00 |
                     """)
             else:
